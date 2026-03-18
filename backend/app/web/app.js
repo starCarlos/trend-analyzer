@@ -781,9 +781,6 @@
     providerSmokeQuery: DEFAULT_PROVIDER_SMOKE_QUERY,
     providerSmokePeriod: "30d",
     providerSmokeForceSearch: false,
-    collectRuns: [],
-    collectRunsLoading: false,
-    collectRunsError: null,
     collectBusy: false,
     collectError: null,
     collectFeedback: null,
@@ -862,8 +859,6 @@
     collectError: document.getElementById("collect-error"),
     collectFeedback: document.getElementById("collect-feedback"),
     collectResults: document.getElementById("collect-results"),
-    runsError: document.getElementById("runs-error"),
-    collectRuns: document.getElementById("collect-runs"),
     contentDisclosure: document.getElementById("content-disclosure"),
     availabilityDisclosure: document.getElementById("availability-disclosure"),
     trendHeading: document.getElementById("trend-heading"),
@@ -1051,16 +1046,13 @@
   async function loadOperationsData() {
     state.schedulerLoading = true;
     state.providerLoading = true;
-    state.collectRunsLoading = true;
     state.schedulerError = null;
     state.providerError = null;
-    state.collectRunsError = null;
     render();
 
-    const [schedulerResult, providerResult, runsResult] = await Promise.allSettled([
+    const [schedulerResult, providerResult] = await Promise.allSettled([
       request("/api/collect/status"),
       request("/api/provider-status"),
-      request("/api/collect/logs?limit=12"),
     ]);
 
     if (schedulerResult.status === "fulfilled") {
@@ -1069,13 +1061,6 @@
       state.schedulerStatus = null;
       state.schedulerError =
         schedulerResult.reason instanceof Error ? schedulerResult.reason.message : t("scheduler.unavailable");
-    }
-
-    if (runsResult.status === "fulfilled") {
-      state.collectRuns = runsResult.value;
-    } else {
-      state.collectRuns = [];
-      state.collectRunsError = runsResult.reason instanceof Error ? runsResult.reason.message : t("collect.trigger_error");
     }
 
     if (providerResult.status === "fulfilled") {
@@ -1087,7 +1072,6 @@
 
     state.schedulerLoading = false;
     state.providerLoading = false;
-    state.collectRunsLoading = false;
     render();
   }
 
@@ -1278,6 +1262,14 @@
         </div>
       </article>
     `;
+  }
+
+  function listProviderChecks(payload) {
+    return payload?.providers || [];
+  }
+
+  function listProviderProbes(payload) {
+    return payload?.providers || [];
   }
 
   function renderProviderSmokeSearchCard(result) {
@@ -1834,7 +1826,7 @@
 
     elements.operationsDisclosure.classList.remove("hidden");
     elements.operationsShell.classList.toggle("hidden", state.view !== "tracked");
-    const operationsLoading = state.schedulerLoading || state.providerLoading || state.collectRunsLoading;
+    const operationsLoading = state.schedulerLoading || state.providerLoading;
     const operationsBusy = operationsLoading || state.collectBusy || state.providerVerifyBusy || state.providerSmokeBusy;
     const shouldOpenOperations =
       state.collectBusy ||
@@ -1975,10 +1967,9 @@
         <span> -> ${state.providerStatus.resolved_provider}</span>
         <p class="availability-message">${state.providerStatus.summary}</p>
       `;
-      const cards = [state.providerStatus.github, state.providerStatus.newsnow].map((check) => renderProviderCard(check));
+      const cards = listProviderChecks(state.providerStatus).map((check) => renderProviderCard(check));
       if (state.providerVerifyFeedback) {
-        cards.push(renderProviderVerifyCard(state.providerVerifyFeedback.github));
-        cards.push(renderProviderVerifyCard(state.providerVerifyFeedback.newsnow));
+        cards.push(...listProviderProbes(state.providerVerifyFeedback).map((probe) => renderProviderVerifyCard(probe)));
       }
       elements.providerGrid.innerHTML = cards.join("");
     }
@@ -2041,44 +2032,6 @@
         .join("");
     }
 
-    if (state.collectRunsError) {
-      elements.runsError.textContent = state.collectRunsError;
-      elements.runsError.classList.remove("hidden");
-    } else {
-      elements.runsError.textContent = "";
-      elements.runsError.classList.add("hidden");
-    }
-
-    if (state.collectRunsLoading && !state.collectRuns.length) {
-      elements.collectRuns.innerHTML = `
-        <div class="empty-state">
-          ${t("collect.loading_runs")}
-        </div>
-      `;
-    } else if (!state.collectRuns.length) {
-      elements.collectRuns.innerHTML = `
-        <div class="empty-state">
-          ${t("collect.no_runs")}
-        </div>
-      `;
-    } else {
-      elements.collectRuns.innerHTML = state.collectRuns
-        .map(
-          (run) => `
-            <article class="ops-run-item">
-              <strong>${translateToken("source", run.source)} / ${run.run_type}</strong>
-              <div class="ops-run-meta">
-                <span>${formatStatusLabel(run.status)}</span>
-                <span>${formatDuration(run.duration_ms)}</span>
-                <span>${formatDate(run.created_at)}</span>
-                <span>${run.keyword_id ? t("collect.keyword_ref", { id: run.keyword_id }) : t("collect.global_run")}</span>
-              </div>
-              <p class="ops-run-message">${run.message || t("collect.no_message")}</p>
-            </article>
-          `
-        )
-        .join("");
-    }
   }
 
   function renderRecentSearches() {

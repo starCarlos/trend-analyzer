@@ -39,6 +39,27 @@ SEARCH_TOKEN_RE = re.compile(r"[a-z0-9]+")
 HAS_CJK_RE = re.compile(r"[\u3400-\u9FFF]")
 GOOGLE_NEWS_SOURCE_BLOCKLIST = {"x.com", "twitter.com"}
 GDELT_DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+GDELT_TITLE_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "of",
+    "on",
+    "or",
+    "says",
+    "saying",
+    "the",
+    "to",
+    "with",
+}
 
 
 class DataProvider(Protocol):
@@ -496,16 +517,52 @@ class RealDataProvider:
                 tokens.append(token)
         return tokens or [normalized]
 
+    @staticmethod
+    def _gdelt_match_text(value: str | None) -> str:
+        if not value:
+            return ""
+        return " ".join(SEARCH_TOKEN_RE.findall(value.casefold()))
+
+    @classmethod
+    def _gdelt_title_key(cls, title: str) -> str:
+        return cls._gdelt_match_text(title)
+
+    @classmethod
+    def _gdelt_title_token_set(cls, title: str, query: str) -> set[str]:
+        query_tokens = set(cls._gdelt_tokens(query))
+        return {
+            token
+            for token in SEARCH_TOKEN_RE.findall(title.casefold())
+            if len(token) > 2 and token not in query_tokens and token not in GDELT_TITLE_STOPWORDS
+        }
+
+    @staticmethod
+    def _token_jaccard(left: set[str], right: set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        overlap = len(left & right)
+        union = len(left | right)
+        return overlap / union if union else 0.0
+
     @classmethod
     def _gdelt_matches_query(cls, query: str, *, title: str | None, url: str | None, domain: str | None) -> bool:
-        searchable = " ".join(part for part in (title, url, domain) if part).casefold()
         normalized_query = " ".join(query.split()).casefold()
+        title_text = cls._gdelt_match_text(title)
+        url_text = cls._gdelt_match_text(url)
+        searchable = " ".join(part for part in (title_text, url_text) if part).strip()
         if not searchable or not normalized_query:
             return False
+        if HAS_CJK_RE.search(normalized_query):
+            raw_searchable = " ".join(part for part in (title, url) if part).casefold()
+            return normalized_query in raw_searchable
         if normalized_query in searchable:
             return True
         tokens = cls._gdelt_tokens(normalized_query)
-        return bool(tokens) and all(token in searchable for token in tokens)
+        if not tokens:
+            return False
+        title_tokens = set(title_text.split())
+        url_tokens = set(url_text.split())
+        return all(token in title_tokens or token in url_tokens for token in tokens)
 
     def _build_gdelt_archive_url(self, query: str) -> str:
         search_query = f'"{query.strip().replace("\"", " ")}"'
@@ -554,6 +611,8 @@ class RealDataProvider:
 
         items: list[ContentItemInput] = []
         seen_urls: set[str] = set()
+        seen_titles: set[str] = set()
+        kept_title_groups: list[tuple[datetime.date, set[str]]] = []
         for index, article in enumerate(articles):
             if not isinstance(article, dict):
                 continue
@@ -565,15 +624,30 @@ class RealDataProvider:
                 continue
             if not self._gdelt_matches_query(normalized_query, title=title, url=article_url, domain=domain):
                 continue
-            if article_url and article_url in seen_urls:
-                continue
 
             published_at = self._parse_gdelt_datetime(str(article.get("seendate") or "").strip())
             if not published_at:
                 continue
 
+            if article_url and article_url in seen_urls:
+                continue
+            title_key = self._gdelt_title_key(title)
+            if title_key in seen_titles:
+                continue
+            title_tokens = self._gdelt_title_token_set(title, normalized_query)
+            is_duplicate_story = any(
+                kept_day == published_at.date() and self._token_jaccard(title_tokens, kept_tokens) >= 0.82
+                for kept_day, kept_tokens in kept_title_groups
+                if title_tokens and kept_tokens
+            )
+            if is_duplicate_story:
+                continue
+
             if article_url:
                 seen_urls.add(article_url)
+            seen_titles.add(title_key)
+            if title_tokens:
+                kept_title_groups.append((published_at.date(), title_tokens))
 
             identity = article_url or "\0".join((normalized_query, title, domain, published_at.isoformat(), str(index)))
             digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]

@@ -1,25 +1,31 @@
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ET
 from typing import Callable
-from urllib import error, request
+from urllib import error, parse, request
 
 from app.config import Settings, get_settings
 from app.schemas import ProviderProbePayload, ProviderVerifyPayload
 from app.services.provider_diagnostics import get_provider_status
+from app.services.provider_registry import iter_online_provider_specs
+from app.services.providers import GDELT_DOC_API_URL
 from app.services.provider_urls import build_newsnow_source_endpoint, iter_newsnow_source_endpoints, newsnow_request_headers
 
 
 RequestJson = Callable[[str, dict[str, str]], tuple[object, dict[str, str]]]
+RequestText = Callable[[str, dict[str, str]], tuple[str, dict[str, str]]]
 ALLOWED_PROBE_MODES = {"current", "real"}
 NEWSNOW_RETRY_ATTEMPTS = 2
-
+GOOGLE_NEWS_PROBE_QUERY = '"openclaw" when:7d'
+GDELT_PROBE_QUERY = "openclaw"
 
 def verify_provider_connectivity(
     *,
     settings: Settings | None = None,
     probe_mode: str = "real",
     request_json: RequestJson | None = None,
+    request_text: RequestText | None = None,
 ) -> ProviderVerifyPayload:
     settings = settings or get_settings()
     normalized_probe_mode = probe_mode.strip().lower()
@@ -30,39 +36,46 @@ def verify_provider_connectivity(
     effective_mode = provider_status.resolved_provider if normalized_probe_mode == "current" else "real"
 
     if effective_mode == "mock":
+        mock_messages = {
+            "github": "Mock 模式下不会探测 GitHub 真实网络连通性。",
+            "newsnow": "Mock 模式下不会探测 NewsNow 真实网络连通性。",
+            "google_news": "Mock 模式下不会探测 Google News 真实网络连通性。",
+            "gdelt": "Mock 模式下不会探测 GDELT 真实网络连通性。",
+        }
         return ProviderVerifyPayload(
             probe_mode=normalized_probe_mode,
             requested_mode=provider_status.requested_mode,
             effective_mode=effective_mode,
             summary="当前模式是 mock，未执行任何真实网络探测。",
-            github=ProviderProbePayload(
-                source="github",
-                attempted_provider="mock",
-                status="skipped",
-                endpoint=None,
-                message="Mock 模式下不会探测 GitHub 真实网络连通性。",
-            ),
-            newsnow=ProviderProbePayload(
-                source="newsnow",
-                attempted_provider="mock",
-                status="skipped",
-                endpoint=None,
-                message="Mock 模式下不会探测 NewsNow 真实网络连通性。",
-            ),
+            providers=[
+                ProviderProbePayload(
+                    source=spec.source,
+                    attempted_provider="mock",
+                    status="skipped",
+                    endpoint=None,
+                    message=mock_messages[spec.source],
+                )
+                for spec in iter_online_provider_specs()
+            ],
         )
 
     client = request_json or _ProbeHttpClient(settings).request_json
-
-    github_probe = _verify_github(settings, provider_status.github, client)
-    newsnow_probe = _verify_newsnow(settings, provider_status.newsnow, client)
+    text_client = request_text or _ProbeHttpClient(settings).request_text
+    checks_by_source = {provider.source: provider for provider in provider_status.providers}
+    verify_handlers = {
+        "github": lambda check: _verify_github(settings, check, client),
+        "newsnow": lambda check: _verify_newsnow(settings, check, client),
+        "google_news": lambda check: _verify_google_news(settings, check, text_client),
+        "gdelt": lambda check: _verify_gdelt(settings, check, text_client),
+    }
+    probes = [verify_handlers[spec.source](checks_by_source.get(spec.source)) for spec in iter_online_provider_specs()]
 
     return ProviderVerifyPayload(
         probe_mode=normalized_probe_mode,
         requested_mode=provider_status.requested_mode,
         effective_mode=effective_mode,
-        summary=_build_summary(normalized_probe_mode, github_probe, newsnow_probe),
-        github=github_probe,
-        newsnow=newsnow_probe,
+        summary=_build_summary(normalized_probe_mode, probes),
+        providers=probes,
     )
 
 
@@ -79,6 +92,19 @@ class _ProbeHttpClient:
         try:
             with self.opener.open(req, timeout=self.settings.request_timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+                response_headers = {key: value for key, value in response.info().items()}
+                return payload, response_headers
+        except error.HTTPError as exc:  # pragma: no cover - depends on network
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"HTTP {exc.code}: {detail[:200]}") from exc
+        except error.URLError as exc:  # pragma: no cover - depends on network
+            raise RuntimeError(f"Network error: {exc.reason}") from exc
+
+    def request_text(self, url: str, headers: dict[str, str]) -> tuple[str, dict[str, str]]:
+        req = request.Request(url, headers=headers)
+        try:
+            with self.opener.open(req, timeout=self.settings.request_timeout_seconds) as response:
+                payload = response.read().decode("utf-8", errors="ignore")
                 response_headers = {key: value for key, value in response.info().items()}
                 return payload, response_headers
         except error.HTTPError as exc:  # pragma: no cover - depends on network
@@ -190,6 +216,131 @@ def _verify_newsnow(
     )
 
 
+def _verify_google_news(
+    settings: Settings,
+    provider_check,
+    request_text: RequestText,
+) -> ProviderProbePayload:
+    endpoint = _build_google_news_probe_url()
+    if provider_check is None or not provider_check.can_use_real_provider:
+        return ProviderProbePayload(
+            source="google_news",
+            attempted_provider="real",
+            status="skipped",
+            endpoint=endpoint if settings.google_news_enabled else None,
+            message="跳过 Google News 在线探测，因为本地配置不完整。",
+        )
+
+    try:
+        xml_text, _ = request_text(
+            endpoint,
+            {
+                "User-Agent": "TrendScope/0.1",
+                "Accept": "application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+    except Exception as exc:
+        return ProviderProbePayload(
+            source="google_news",
+            attempted_provider="real",
+            status="failed",
+            endpoint=endpoint,
+            message=f"Google News 在线探测失败: {exc}",
+        )
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        return ProviderProbePayload(
+            source="google_news",
+            attempted_provider="real",
+            status="failed",
+            endpoint=endpoint,
+            message=f"Google News RSS 解析失败: {exc}",
+        )
+
+    items = root.findall("./channel/item")
+    return ProviderProbePayload(
+        source="google_news",
+        attempted_provider="real",
+        status="success",
+        endpoint=endpoint,
+        message=f"Google News 在线探测成功。items={len(items)}.",
+    )
+
+
+def _verify_gdelt(
+    settings: Settings,
+    provider_check,
+    request_text: RequestText,
+) -> ProviderProbePayload:
+    endpoint = _build_gdelt_probe_url()
+    if provider_check is None or not provider_check.can_use_real_provider:
+        return ProviderProbePayload(
+            source="gdelt",
+            attempted_provider="real",
+            status="skipped",
+            endpoint=endpoint if settings.gdelt_enabled else None,
+            message="跳过 GDELT 在线探测，因为本地配置不完整。",
+        )
+
+    try:
+        raw_text, _ = request_text(
+            endpoint,
+            {
+                "User-Agent": "TrendScope/0.1",
+                "Accept": "application/json,text/plain,*/*",
+            },
+        )
+    except Exception as exc:
+        return ProviderProbePayload(
+            source="gdelt",
+            attempted_provider="real",
+            status="failed",
+            endpoint=endpoint,
+            message=f"GDELT 在线探测失败: {exc}",
+        )
+
+    stripped = raw_text.lstrip()
+    if stripped.startswith("Please limit requests"):
+        return ProviderProbePayload(
+            source="gdelt",
+            attempted_provider="real",
+            status="failed",
+            endpoint=endpoint,
+            message=f"GDELT 在线探测失败: {stripped[:200]}",
+        )
+
+    try:
+        payload = json.loads(raw_text)
+    except ValueError as exc:
+        return ProviderProbePayload(
+            source="gdelt",
+            attempted_provider="real",
+            status="failed",
+            endpoint=endpoint,
+            message=f"GDELT 返回内容不是合法 JSON: {exc}",
+        )
+
+    if not isinstance(payload, dict):
+        return ProviderProbePayload(
+            source="gdelt",
+            attempted_provider="real",
+            status="failed",
+            endpoint=endpoint,
+            message=f"GDELT 返回内容不是预期的 JSON object，而是 {type(payload).__name__}。",
+        )
+
+    articles = payload.get("articles") if isinstance(payload.get("articles"), list) else []
+    return ProviderProbePayload(
+        source="gdelt",
+        attempted_provider="real",
+        status="success",
+        endpoint=endpoint,
+        message=f"GDELT 在线探测成功。articles={len(articles)}.",
+    )
+
+
 def _request_newsnow_with_retry(
     url: str,
     request_json: RequestJson,
@@ -230,14 +381,31 @@ def _is_retryable_newsnow_probe_error(exc: Exception) -> bool:
     return any(token in message for token in retryable_tokens)
 
 
+def _build_google_news_probe_url() -> str:
+    encoded_query = parse.quote_plus(GOOGLE_NEWS_PROBE_QUERY)
+    return f"https://news.google.com/rss/search?q={encoded_query}&hl=en-US&gl=US&ceid=US%3Aen"
+
+
+def _build_gdelt_probe_url() -> str:
+    params = {
+        "query": f'"{GDELT_PROBE_QUERY}"',
+        "mode": "ArtList",
+        "format": "json",
+        "sort": "datedesc",
+        "maxrecords": "1",
+        "timespan": "7d",
+    }
+    return f"{GDELT_DOC_API_URL}?{parse.urlencode(params)}"
+
+
 def _build_summary(
     probe_mode: str,
-    github: ProviderProbePayload,
-    newsnow: ProviderProbePayload,
+    probes: list[ProviderProbePayload],
 ) -> str:
-    statuses = {github.status, newsnow.status}
+    statuses = {probe.status for probe in probes}
+    succeeded_sources = [probe.source for probe in probes if probe.status == "success"]
     if statuses == {"success"}:
-        return f"{probe_mode} 模式在线探测成功，GitHub 和 NewsNow 都已返回响应。"
+        return f"{probe_mode} 模式在线探测成功，{len(succeeded_sources)} 个数据源都已返回响应。"
     if "failed" in statuses:
         return f"{probe_mode} 模式在线探测已执行，但至少有一个数据源失败。"
     if statuses == {"skipped"}:

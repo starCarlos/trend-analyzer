@@ -17,7 +17,7 @@ os.environ.setdefault("APP_ENV", "test")
 from app.config import Settings
 from app.database import Base, SessionLocal, engine
 from app.main import health, index, provider_smoke, provider_status, provider_verify, tracked_page, web_dir
-from app.models import BackfillJob, BackfillJobTask, ContentItem, TrendPoint, utcnow
+from app.models import BackfillJob, BackfillJobTask, ContentItem, Keyword, TrendPoint, utcnow
 from app.schemas import (
     ProviderCheckPayload,
     ProviderProbePayload,
@@ -73,13 +73,14 @@ class ServiceTestCase(unittest.TestCase):
 
     def test_web_ui_contains_recent_tracked_collect_and_provider_panels(self) -> None:
         html = (web_dir / "index.html").read_text(encoding="utf-8")
+        app_js = (web_dir / "app.js").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN">', html)
         self.assertIn('id="recent-panel"', html)
         self.assertIn('id="tracked-panel"', html)
         self.assertIn('id="operations-shell"', html)
         self.assertIn('id="operations-disclosure"', html)
         self.assertIn('id="collect-form"', html)
-        self.assertIn('id="collect-runs"', html)
+        self.assertNotIn('id="collect-runs"', html)
         self.assertIn('id="provider-grid"', html)
         self.assertIn('id="provider-verify-button"', html)
         self.assertIn('id="provider-smoke-form"', html)
@@ -90,6 +91,7 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIn('id="availability-disclosure"', html)
         self.assertIn('data-locale-switch="zh"', html)
         self.assertIn('data-locale-switch="en"', html)
+        self.assertIn("return payload?.providers || [];", app_js)
 
     def test_provider_status_reports_mock_mode(self) -> None:
         payload = get_provider_status(
@@ -104,6 +106,8 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(payload.resolved_provider, "mock")
         self.assertEqual(payload.github.status, "mock_only")
         self.assertEqual(payload.newsnow.status, "mock_only")
+        self.assertEqual(payload.google_news.status, "mock_only")
+        self.assertEqual(payload.gdelt.status, "mock_only")
         self.assertIn("mock", payload.summary)
 
     def test_provider_status_route_returns_payload(self) -> None:
@@ -262,12 +266,31 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(payload.github.status, "ready")
         self.assertEqual(payload.newsnow.preferred_provider, "mock")
         self.assertEqual(payload.newsnow.status, "fallback_only")
+        self.assertEqual(payload.google_news.status, "ready")
+        self.assertEqual(payload.gdelt.status, "ready")
 
     def test_provider_verify_reports_success_for_real_probe(self) -> None:
         def fake_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
             if url.endswith("/rate_limit"):
                 return ({"rate": {"remaining": 4999, "limit": 5000}}, {})
             return ({"items": [{"title": "demo"}]}, {})
+
+        def fake_request_text(url: str, headers: dict[str, str]) -> tuple[str, dict[str, str]]:
+            del headers
+            if "news.google.com" in url:
+                return (
+                    """
+                    <rss version="2.0">
+                      <channel>
+                        <item><title>OpenClaw headline</title></item>
+                      </channel>
+                    </rss>
+                    """,
+                    {},
+                )
+            if "api.gdeltproject.org" in url:
+                return (json.dumps({"articles": [{"title": "OpenClaw headline"}]}), {})
+            raise AssertionError(url)
 
         payload = verify_provider_connectivity(
             settings=Settings(
@@ -280,10 +303,13 @@ class ServiceTestCase(unittest.TestCase):
             ),
             probe_mode="real",
             request_json=fake_request_json,
+            request_text=fake_request_text,
         )
 
         self.assertEqual(payload.github.status, "success")
         self.assertEqual(payload.newsnow.status, "success")
+        self.assertEqual(payload.google_news.status, "success")
+        self.assertEqual(payload.gdelt.status, "success")
         self.assertIn("成功", payload.summary)
         self.assertEqual(payload.newsnow.endpoint, "https://newsnow.example.com/api/s?id=weibo")
 
@@ -304,6 +330,8 @@ class ServiceTestCase(unittest.TestCase):
                 github_api_base_url="https://api.github.com",
                 newsnow_base_url="https://newsnow.example.com",
                 newsnow_source_ids="weibo-hot",
+                google_news_enabled=False,
+                gdelt_enabled=False,
                 request_timeout_seconds=8.0,
             ),
             probe_mode="real",
@@ -334,6 +362,8 @@ class ServiceTestCase(unittest.TestCase):
                 github_api_base_url="https://api.github.com",
                 newsnow_base_url="https://newsnow.example.com",
                 newsnow_source_ids="weibo",
+                google_news_enabled=False,
+                gdelt_enabled=False,
                 request_timeout_seconds=8.0,
             ),
             probe_mode="real",
@@ -351,14 +381,19 @@ class ServiceTestCase(unittest.TestCase):
                 github_api_base_url="",
                 newsnow_base_url="",
                 newsnow_source_ids="",
+                google_news_enabled=False,
+                gdelt_enabled=False,
                 request_timeout_seconds=8.0,
             ),
             probe_mode="real",
             request_json=lambda _url, _headers: ({}, {}),
+            request_text=lambda _url, _headers: ("", {}),
         )
 
         self.assertEqual(payload.github.status, "skipped")
         self.assertEqual(payload.newsnow.status, "skipped")
+        self.assertEqual(payload.google_news.status, "skipped")
+        self.assertEqual(payload.gdelt.status, "skipped")
         self.assertIn("跳过", payload.github.message)
 
     def test_real_provider_fetch_github_content_tolerates_missing_releases(self) -> None:
@@ -583,6 +618,86 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(items[0].author, "example.com")
         self.assertEqual(items[0].published_at, datetime(2026, 3, 17, 4, 42, 44))
 
+    def test_real_provider_fetch_gdelt_archive_does_not_match_domain_only_noise(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                gdelt_enabled=True,
+                gdelt_history_days=90,
+                gdelt_max_items=10,
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        payload = json.dumps(
+            {
+                "articles": [
+                    {
+                        "url": "https://example.com/story",
+                        "title": "Browser agent roundup of the week",
+                        "seendate": "20260317T050000Z",
+                        "domain": "openclaw-news.example",
+                        "language": "English",
+                        "sourcecountry": "United States",
+                    },
+                    {
+                        "url": "https://example.com/openclaw-launch",
+                        "title": "OpenClaw launches browser agent mode",
+                        "seendate": "20260317T044244Z",
+                        "domain": "example.com",
+                        "language": "English",
+                        "sourcecountry": "United States",
+                    },
+                ]
+            }
+        )
+
+        with patch.object(provider, "_request_text", return_value=payload):
+            items = provider.fetch_gdelt_archive("openclaw")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].title, "OpenClaw launches browser agent mode")
+
+    def test_real_provider_fetch_gdelt_archive_deduplicates_near_identical_titles(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                gdelt_enabled=True,
+                gdelt_history_days=90,
+                gdelt_max_items=10,
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        payload = json.dumps(
+            {
+                "articles": [
+                    {
+                        "url": "https://example.com/openclaw-launch-1",
+                        "title": "OpenClaw launches browser agent mode beta for desktop automation",
+                        "seendate": "20260317T084244Z",
+                        "domain": "example.com",
+                        "language": "English",
+                        "sourcecountry": "United States",
+                    },
+                    {
+                        "url": "https://mirror.example.com/openclaw-launch-1",
+                        "title": "OpenClaw launches browser agent mode beta for desktop automation tools",
+                        "seendate": "20260317T074244Z",
+                        "domain": "mirror.example.com",
+                        "language": "English",
+                        "sourcecountry": "United States",
+                    },
+                ]
+            }
+        )
+
+        with patch.object(provider, "_request_text", return_value=payload):
+            items = provider.fetch_gdelt_archive("openclaw")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].url, "https://example.com/openclaw-launch-1")
+
     def test_provider_smoke_skips_search_when_probe_fails(self) -> None:
         smoke = run_provider_smoke(
             query="anthropic/claude-code",
@@ -659,6 +774,64 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(smoke.search.status, "success")
         self.assertEqual(smoke.search.trend_series_count, 2)
         self.assertEqual(smoke.search.content_item_count, 3)
+
+    def test_provider_smoke_keeps_default_search_when_archive_probe_fails(self) -> None:
+        fake_search = type(
+            "SearchPayload",
+            (),
+            {
+                "keyword": type("Keyword", (), {"kind": "github_repo", "normalized_query": "openclaw/openclaw"})(),
+                "trend": type("Trend", (), {"series": [1]})(),
+                "content_items": [1],
+                "availability": {"github_history": "ready", "newsnow_snapshot": "ready", "google_news_archive": "failed"},
+                "backfill_job": type("BackfillJob", (), {"status": "partial"})(),
+            },
+        )()
+
+        smoke = run_provider_smoke(
+            query="openclaw",
+            period="30d",
+            probe_mode="real",
+            provider_status_loader=lambda: get_provider_status(Settings(provider_mode="real")),
+            provider_verify_runner=lambda **_: ProviderVerifyPayload(
+                probe_mode="real",
+                requested_mode="real",
+                effective_mode="real",
+                summary="archive probe failed",
+                github=ProviderProbePayload(
+                    source="github",
+                    attempted_provider="real",
+                    status="success",
+                    endpoint="https://api.github.com/rate_limit",
+                    message="ok",
+                ),
+                newsnow=ProviderProbePayload(
+                    source="newsnow",
+                    attempted_provider="real",
+                    status="success",
+                    endpoint="https://newsnow.example.com/api/s?id=weibo",
+                    message="ok",
+                ),
+                google_news=ProviderProbePayload(
+                    source="google_news",
+                    attempted_provider="real",
+                    status="failed",
+                    endpoint="https://news.google.com/rss/search?q=openclaw",
+                    message="failed",
+                ),
+                gdelt=ProviderProbePayload(
+                    source="gdelt",
+                    attempted_provider="real",
+                    status="success",
+                    endpoint="https://api.gdeltproject.org/api/v2/doc/doc?query=%22openclaw%22",
+                    message="ok",
+                ),
+            ),
+            search_runner=lambda *_args, **_kwargs: fake_search,
+        )
+
+        self.assertEqual(smoke.search.status, "success")
+        self.assertTrue(any("Google News" in item for item in smoke.next_steps))
 
     def test_parse_search_query_normalizes_github_url(self) -> None:
         target = parse_search_query("https://github.com/Anthropic/Claude-Code/")
@@ -1117,6 +1290,94 @@ class ServiceTestCase(unittest.TestCase):
         self.assertTrue(any(item.source == "gdelt" for item in payload.content_items))
         self.assertEqual(payload.availability["gdelt_archive"], "ready")
         self.assertIsNone(payload.backfill_job)
+
+    def test_search_filters_stored_gdelt_noise_and_rebuilds_series(self) -> None:
+        bucket_start = datetime(2026, 3, 17, 0, 0, 0)
+        keyword = Keyword(
+            raw_query="openclaw/openclaw",
+            normalized_query="openclaw/openclaw",
+            kind="github_repo",
+            target_ref="openclaw/openclaw",
+        )
+        self.db.add(keyword)
+        self.db.flush()
+
+        self.db.add_all(
+            [
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="gdelt",
+                    source_type="archive",
+                    external_key="gdelt-visible",
+                    title="OpenClaw launches browser agent mode beta for desktop automation",
+                    url="https://example.com/openclaw-launch-1",
+                    summary=None,
+                    author="example.com",
+                    published_at=datetime(2026, 3, 17, 10, 0, 0),
+                    meta_json="{}",
+                ),
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="gdelt",
+                    source_type="archive",
+                    external_key="gdelt-noise",
+                    title="Browser agent roundup of the week",
+                    url="https://example.com/story",
+                    summary=None,
+                    author="openclaw-news.example",
+                    published_at=datetime(2026, 3, 17, 11, 0, 0),
+                    meta_json="{}",
+                ),
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="gdelt",
+                    source_type="archive",
+                    external_key="gdelt-duplicate",
+                    title="OpenClaw launches browser agent mode beta for desktop automation tools",
+                    url="https://mirror.example.com/openclaw-launch-1",
+                    summary=None,
+                    author="mirror.example.com",
+                    published_at=datetime(2026, 3, 17, 9, 30, 0),
+                    meta_json="{}",
+                ),
+            ]
+        )
+        self.db.add(
+            TrendPoint(
+                keyword_id=keyword.id,
+                source="gdelt",
+                metric="matched_item_count",
+                source_type="timeline",
+                bucket_granularity="day",
+                bucket_start=bucket_start,
+                value=3.0,
+                raw_json="{}",
+            )
+        )
+        self.db.commit()
+
+        with (
+            patch("app.services.search._prefetch_content_history_inline", return_value=False),
+            patch("app.services.search._maybe_schedule_backfill", return_value=None),
+        ):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query="openclaw/openclaw",
+                period="all",
+                content_source="gdelt",
+            )
+
+        self.assertEqual(len(payload.content_items), 1)
+        self.assertEqual(payload.content_items[0].title, "OpenClaw launches browser agent mode beta for desktop automation")
+        gdelt_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "gdelt"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in gdelt_series.points], [1.0])
 
     def test_repository_search_prefetches_google_news_inline_and_derives_timeline(self) -> None:
         repo_name = f"repo-{uuid4().hex[:8]}"

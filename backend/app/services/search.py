@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 from itertools import groupby
 
 from fastapi import BackgroundTasks, HTTPException
@@ -29,7 +29,7 @@ from app.services.backfill import (
     _upsert_trend_point,
     run_backfill_job,
 )
-from app.services.providers import get_data_provider
+from app.services.providers import RealDataProvider, get_data_provider
 from app.services.provider_types import TrendPointInput
 from app.services.query_parser import SearchTarget, resolve_search_query
 
@@ -321,10 +321,105 @@ def _is_synthetic_json(raw_json: str | None) -> bool:
     return isinstance(payload, dict) and payload.get("synthetic") is True
 
 
-def _filter_visible_contents(contents: list[ContentItem]) -> list[ContentItem]:
+def _filter_visible_contents(keyword: Keyword, contents: list[ContentItem]) -> list[ContentItem]:
     if get_settings().provider_mode == "mock":
         return contents
-    return [item for item in contents if not _is_synthetic_json(item.meta_json)]
+
+    visible: list[ContentItem] = []
+    gdelt_queries = _archive_queries(keyword)
+    seen_gdelt_titles: set[str] = set()
+    kept_gdelt_title_groups: list[tuple[date, set[str]]] = []
+
+    for item in contents:
+        if _is_synthetic_json(item.meta_json):
+            continue
+        if item.source != "gdelt":
+            visible.append(item)
+            continue
+
+        matched_query = next(
+            (
+                query
+                for query in gdelt_queries
+                if RealDataProvider._gdelt_matches_query(
+                    query,
+                    title=item.title,
+                    url=item.url,
+                    domain=item.author,
+                )
+            ),
+            None,
+        )
+        if not matched_query:
+            continue
+
+        title_key = RealDataProvider._gdelt_title_key(item.title)
+        if title_key in seen_gdelt_titles:
+            continue
+
+        published_day = item.published_at.date() if item.published_at else None
+        title_tokens = RealDataProvider._gdelt_title_token_set(item.title, matched_query)
+        is_duplicate_story = (
+            published_day is not None
+            and bool(title_tokens)
+            and any(
+                kept_day == published_day and RealDataProvider._token_jaccard(title_tokens, kept_tokens) >= 0.82
+                for kept_day, kept_tokens in kept_gdelt_title_groups
+                if kept_tokens
+            )
+        )
+        if is_duplicate_story:
+            continue
+
+        seen_gdelt_titles.add(title_key)
+        if published_day is not None and title_tokens:
+            kept_gdelt_title_groups.append((published_day, title_tokens))
+        visible.append(item)
+
+    return visible
+
+
+def _build_archive_series_from_contents(contents: list[ContentItem], source: str) -> TrendSeriesPayload | None:
+    counts_by_day: dict = {}
+    for item in contents:
+        if item.source != source or not item.published_at:
+            continue
+        bucket_start = item.published_at.replace(hour=0, minute=0, second=0, microsecond=0)
+        counts_by_day[bucket_start] = counts_by_day.get(bucket_start, 0) + 1
+
+    if not counts_by_day:
+        return None
+
+    return TrendSeriesPayload(
+        source=source,
+        metric="matched_item_count",
+        source_type="timeline",
+        points=[
+            TrendPointPayload(bucket_start=bucket_start, value=float(count))
+            for bucket_start, count in sorted(counts_by_day.items())
+        ],
+    )
+
+
+def _replace_archive_series(
+    series_payloads: list[TrendSeriesPayload],
+    *,
+    source: str,
+    replacement: TrendSeriesPayload | None,
+) -> list[TrendSeriesPayload]:
+    filtered = [
+        series
+        for series in series_payloads
+        if not (
+            series.source == source
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+    ]
+    if replacement is not None:
+        filtered.append(replacement)
+    filtered.sort(key=lambda series: (series.source, series.metric, series.source_type))
+    return filtered
 
 
 def _select_visible_content_items(
@@ -334,7 +429,7 @@ def _select_visible_content_items(
     days: int | None,
     parsed_content_source: str | None,
 ) -> list[ContentItem]:
-    visible = _filter_content(_filter_visible_contents(contents), days)
+    visible = _filter_content(_filter_visible_contents(keyword, contents), days)
     if parsed_content_source:
         return visible[:20]
     if keyword.kind not in {"keyword", "github_repo"}:
@@ -613,6 +708,16 @@ def search_keyword(
             .limit(20)
         )
     )
+    gdelt_contents = list(
+        db.scalars(
+            select(ContentItem)
+            .where(
+                ContentItem.keyword_id == keyword.id,
+                ContentItem.source == "gdelt",
+            )
+            .order_by(desc(ContentItem.published_at), desc(ContentItem.fetched_at))
+        )
+    )
     content_stmt = (
         select(ContentItem)
         .where(ContentItem.keyword_id == keyword.id)
@@ -630,12 +735,19 @@ def search_keyword(
         days=days,
         parsed_content_source=parsed_content_source,
     )
+    filtered_gdelt_contents = _filter_content(_filter_visible_contents(keyword, gdelt_contents), days)
     series = _apply_trend_semantics(keyword, _build_series(filtered_points))
+    series = _replace_archive_series(
+        series,
+        source="gdelt",
+        replacement=_build_archive_series_from_contents(filtered_gdelt_contents, "gdelt"),
+    )
     snapshot = _build_snapshot(trend_points, snapshot_contents)
     availability = _availability(keyword, job, trend_points, snapshot_contents)
 
-    period_start = filtered_points[0].bucket_start if filtered_points else None
-    period_end = filtered_points[-1].bucket_start if filtered_points else None
+    series_points = [point.bucket_start for item in series for point in item.points]
+    period_start = min(series_points) if series_points else None
+    period_end = max(series_points) if series_points else None
 
     return SearchResponsePayload(
         keyword=KeywordPayload.model_validate(keyword),

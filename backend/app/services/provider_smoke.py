@@ -5,6 +5,7 @@ from typing import Callable
 from app.schemas import ProviderSmokePayload, ProviderSmokeSearchPayload
 from app.services.collector import refresh_keyword
 from app.services.provider_diagnostics import get_provider_status
+from app.services.provider_registry import SMOKE_BLOCKING_PROVIDER_SOURCES, get_online_provider_spec
 from app.services.provider_verification import verify_provider_connectivity
 
 
@@ -28,9 +29,9 @@ def run_provider_smoke(
 
     should_skip_search = (
         not force_search
-        and (
-            provider_verify.github.status != "success"
-            or provider_verify.newsnow.status != "success"
+        and any(
+            probe.status != "success"
+            for probe in _iter_provider_probes(provider_verify, SMOKE_BLOCKING_PROVIDER_SOURCES)
         )
     )
 
@@ -82,7 +83,8 @@ def _build_summary(provider_verify, search: ProviderSmokeSearchPayload) -> str:
         return "预检、在线探测和端到端搜索都已执行，当前 provider 冒烟通过。"
     if search.status == "failed":
         return "预检和在线探测已执行，但端到端搜索失败。"
-    if provider_verify.github.status == "success" and provider_verify.newsnow.status == "success":
+    probes = _iter_provider_probes(provider_verify)
+    if probes and all(probe.status == "success" for probe in probes):
         return "在线探测成功，但本轮按默认策略没有执行真实搜索。"
     return "在线探测未全部成功，端到端搜索已按默认策略跳过。"
 
@@ -90,10 +92,12 @@ def _build_summary(provider_verify, search: ProviderSmokeSearchPayload) -> str:
 def _build_next_steps(provider_verify, search: ProviderSmokeSearchPayload, force_search: bool) -> list[str]:
     steps: list[str] = []
 
-    if provider_verify.github.status != "success":
-        steps.append("先处理 GitHub 在线探测失败或跳过，再做真实联调。")
-    if provider_verify.newsnow.status != "success":
-        steps.append("先处理 NewsNow 在线探测失败或跳过，再做真实联调。")
+    for probe in _iter_provider_probes(provider_verify):
+        if probe.status == "success":
+            continue
+        spec = get_online_provider_spec(probe.source)
+        label = spec.label if spec else probe.source
+        steps.append(f"先处理 {label} 在线探测失败或跳过，再做真实联调。")
     if search.status == "skipped" and not force_search:
         steps.append("如果你仍想强制验证真实搜索，重新运行 provider-smoke 并开启 force_search。")
     if search.status == "failed":
@@ -105,3 +109,11 @@ def _build_next_steps(provider_verify, search: ProviderSmokeSearchPayload, force
         steps.append("当前 smoke 输出没有额外动作项。")
 
     return steps
+
+
+def _iter_provider_probes(provider_verify, sources: tuple[str, ...] | None = None) -> list[object]:
+    providers = getattr(provider_verify, "providers", None) or []
+    if sources is None:
+        return list(providers)
+    source_set = set(sources)
+    return [probe for probe in providers if probe.source in source_set]

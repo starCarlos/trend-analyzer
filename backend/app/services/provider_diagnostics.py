@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.config import Settings, get_settings
 from app.schemas import ProviderCheckPayload, ProviderStatusPayload
+from app.services.provider_registry import iter_online_provider_specs
 
 
 ALLOWED_PROVIDER_MODES = {"mock", "real", "auto"}
@@ -12,15 +13,19 @@ def get_provider_status(settings: Settings | None = None) -> ProviderStatusPaylo
     requested_mode = settings.provider_mode.strip().lower()
     mode = requested_mode if requested_mode in ALLOWED_PROVIDER_MODES else "invalid"
 
-    github = _diagnose_github(settings, mode)
-    newsnow = _diagnose_newsnow(settings, mode)
+    handlers = {
+        "github": _diagnose_github,
+        "newsnow": _diagnose_newsnow,
+        "google_news": _diagnose_google_news,
+        "gdelt": _diagnose_gdelt,
+    }
+    providers = [handlers[spec.source](settings, mode) for spec in iter_online_provider_specs()]
 
     return ProviderStatusPayload(
         requested_mode=requested_mode,
         resolved_provider=mode,
-        summary=_build_summary(mode, github, newsnow),
-        github=github,
-        newsnow=newsnow,
+        summary=_build_summary(mode, providers),
+        providers=providers,
     )
 
 
@@ -82,6 +87,62 @@ def _diagnose_newsnow(settings: Settings, mode: str) -> ProviderCheckPayload:
         auto_fallback_note="Auto 模式下 NewsNow 真实配置不完整，实际会回退到 mock。",
         mock_note="PROVIDER_MODE=mock，NewsNow 不会发起真实网络请求。",
         ready_note="NewsNow 真实配置在本地看起来可用，但当前还没有在线验证网络连通性。",
+    )
+
+
+def _diagnose_google_news(settings: Settings, mode: str) -> ProviderCheckPayload:
+    issues: list[str] = []
+    warnings: list[str] = []
+    notes: list[str] = ["Google News RSS 无需额外 token。"]
+
+    if not settings.google_news_enabled:
+        issues.append("GOOGLE_NEWS_ENABLED=false。")
+    if settings.google_news_max_items <= 0:
+        issues.append("GOOGLE_NEWS_MAX_ITEMS 必须大于 0。")
+    if settings.request_timeout_seconds <= 0:
+        issues.append("REQUEST_TIMEOUT_SECONDS 必须大于 0。")
+    if settings.http_proxy.strip():
+        notes.append("HTTP_PROXY 已配置，真实请求会经过代理。")
+
+    return _build_check(
+        source="google_news",
+        mode=mode,
+        can_use_real_provider=not issues,
+        issues=issues,
+        warnings=warnings,
+        notes=notes,
+        auto_ready_note="Auto 模式会优先请求真实 Google News RSS，失败后回退到 mock。",
+        auto_fallback_note="Auto 模式下 Google News 真实配置不完整，实际会回退到 mock。",
+        mock_note="PROVIDER_MODE=mock，Google News 不会发起真实网络请求。",
+        ready_note="Google News RSS 在本地看起来可用，但当前还没有在线验证网络连通性。",
+    )
+
+
+def _diagnose_gdelt(settings: Settings, mode: str) -> ProviderCheckPayload:
+    issues: list[str] = []
+    warnings: list[str] = []
+    notes: list[str] = ["GDELT Doc API 有官方限流，建议请求间隔至少 5 秒。"]
+
+    if not settings.gdelt_enabled:
+        issues.append("GDELT_ENABLED=false。")
+    if settings.gdelt_max_items <= 0:
+        issues.append("GDELT_MAX_ITEMS 必须大于 0。")
+    if settings.request_timeout_seconds <= 0:
+        issues.append("REQUEST_TIMEOUT_SECONDS 必须大于 0。")
+    if settings.http_proxy.strip():
+        notes.append("HTTP_PROXY 已配置，真实请求会经过代理。")
+
+    return _build_check(
+        source="gdelt",
+        mode=mode,
+        can_use_real_provider=not issues,
+        issues=issues,
+        warnings=warnings,
+        notes=notes,
+        auto_ready_note="Auto 模式会优先请求真实 GDELT，失败后回退到 mock。",
+        auto_fallback_note="Auto 模式下 GDELT 真实配置不完整，实际会回退到 mock。",
+        mock_note="PROVIDER_MODE=mock，GDELT 不会发起真实网络请求。",
+        ready_note="GDELT 在本地看起来可用，但当前还没有在线验证网络连通性。",
     )
 
 
@@ -152,17 +213,17 @@ def _build_check(
     )
 
 
-def _build_summary(mode: str, github: ProviderCheckPayload, newsnow: ProviderCheckPayload) -> str:
+def _build_summary(mode: str, checks: list[ProviderCheckPayload]) -> str:
     if mode == "mock":
         return "当前是 mock 模式，所有数据源都会使用本地假数据。"
 
     if mode == "real":
-        if github.status == "misconfigured" or newsnow.status == "misconfigured":
+        if any(check.status == "misconfigured" for check in checks):
             return "当前是 real 模式，但至少有一个数据源的本地配置不完整。"
         return "当前是 real 模式，本地配置看起来可用，但网络连通性和真实返回结果尚未验证。"
 
     if mode == "auto":
-        if github.status == "fallback_only" or newsnow.status == "fallback_only":
+        if any(check.status == "fallback_only" for check in checks):
             return "当前是 auto 模式，至少有一个数据源因配置不完整会直接回退到 mock。"
         return "当前是 auto 模式，会先尝试真实 provider，失败后回退到 mock。"
 

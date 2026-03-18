@@ -1,7 +1,10 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+LEGACY_PROVIDER_FIELDS = ("github", "newsnow", "google_news", "gdelt")
 
 
 class KeywordPayload(BaseModel):
@@ -161,8 +164,38 @@ class ProviderStatusPayload(BaseModel):
     requested_mode: str
     resolved_provider: str
     summary: str
-    github: ProviderCheckPayload
-    newsnow: ProviderCheckPayload
+    providers: list[ProviderCheckPayload] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_provider_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "providers" in data and data["providers"] is not None:
+            return data
+
+        payload = dict(data)
+        payload["providers"] = [payload.pop(field) for field in LEGACY_PROVIDER_FIELDS if payload.get(field) is not None]
+        return payload
+
+    def get_provider(self, source: str) -> ProviderCheckPayload | None:
+        return next((provider for provider in self.providers if provider.source == source), None)
+
+    @property
+    def github(self) -> ProviderCheckPayload | None:
+        return self.get_provider("github")
+
+    @property
+    def newsnow(self) -> ProviderCheckPayload | None:
+        return self.get_provider("newsnow")
+
+    @property
+    def google_news(self) -> ProviderCheckPayload | None:
+        return self.get_provider("google_news")
+
+    @property
+    def gdelt(self) -> ProviderCheckPayload | None:
+        return self.get_provider("gdelt")
 
 
 class ProviderVerifyRequest(BaseModel):
@@ -182,8 +215,38 @@ class ProviderVerifyPayload(BaseModel):
     requested_mode: str
     effective_mode: str
     summary: str
-    github: ProviderProbePayload
-    newsnow: ProviderProbePayload
+    providers: list[ProviderProbePayload] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_provider_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "providers" in data and data["providers"] is not None:
+            return data
+
+        payload = dict(data)
+        payload["providers"] = [payload.pop(field) for field in LEGACY_PROVIDER_FIELDS if payload.get(field) is not None]
+        return payload
+
+    def get_provider(self, source: str) -> ProviderProbePayload | None:
+        return next((provider for provider in self.providers if provider.source == source), None)
+
+    @property
+    def github(self) -> ProviderProbePayload | None:
+        return self.get_provider("github")
+
+    @property
+    def newsnow(self) -> ProviderProbePayload | None:
+        return self.get_provider("newsnow")
+
+    @property
+    def google_news(self) -> ProviderProbePayload | None:
+        return self.get_provider("google_news")
+
+    @property
+    def gdelt(self) -> ProviderProbePayload | None:
+        return self.get_provider("gdelt")
 
 
 class ProviderSmokeRequest(BaseModel):
