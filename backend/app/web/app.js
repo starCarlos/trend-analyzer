@@ -64,6 +64,7 @@
       result: {
         kicker_repo: "仓库查询",
         kicker_keyword: "关键词查询",
+        brief_title: "信号摘要",
         health_ready: "可直接看",
         health_backfill: "回填中",
         health_attention: "需要留意",
@@ -112,6 +113,34 @@
         saving: "保存中...",
         untrack: "取消追踪",
         update_error: "更新追踪词失败。",
+      },
+      guide: {
+        trend_title: "先看趋势线",
+        trend_body: "判断这是持续升温，还是只是某一天的偶发脉冲。",
+        snapshot_title: "再看今日快照",
+        snapshot_body: "确认今天到底有多少条命中、覆盖了几个来源平台。",
+        availability_title: "然后看数据可用性",
+        availability_body: "区分哪些来源已经到位，哪些还在回填，哪些只是上游临时失败。",
+        content_title: "最后点开内容流",
+        content_body: "用具体新闻、PR、release 去解释曲线为什么会变。",
+      },
+      ops: {
+        title: "进阶运维工具",
+        subtitle: "普通查看趋势时可忽略；只有在排查采集、数据源或定时任务时才需要展开。",
+        open: "展开进阶工具",
+        close: "收起进阶工具",
+        scheduler_kicker: "调度器",
+        scheduler_title: "看定时任务",
+        scheduler_body: "确认后台轮询是否在跑，以及最近一轮有没有报错。",
+        provider_kicker: "数据源",
+        provider_title: "查真实源连通性",
+        provider_body: "排查 GitHub 和 NewsNow 是否可用，必要时做 smoke 搜索。",
+        collect_kicker: "手动触发",
+        collect_title: "补抓数据",
+        collect_body: "对追踪列表或某个 query 立刻执行一次采集和回填。",
+        runs_kicker: "审计",
+        runs_title: "看后台最近做了什么",
+        runs_body: "快速判断数据没更新，到底是没跑、跑慢了，还是来源失败。",
       },
       action: {
         refresh: "刷新",
@@ -200,8 +229,10 @@
         default: "优先使用 GitHub 直接路径开始，首次结果更强。普通关键词会先返回快照，再补历史新闻和内容流。",
       },
       content: {
+        kicker: "内容解释",
         title: "相关内容流",
         subtitle: "与当前查询关联的最近条目。",
+        summary: "只有当你想知道曲线为什么变化时，再展开这块看具体新闻、PR 和 release。",
         no_items: "还没有 {source}内容。等该来源可用后，采集会把这里补齐。",
         no_summary: "暂时没有摘要。",
       },
@@ -220,11 +251,17 @@
         updated_at: "最近更新时间",
       },
       availability: {
+        kicker: "数据状态",
         title: "数据可用性",
         subtitle: "前端把部分成功视为正常状态。",
+        summary: "平时不用盯这一块；只有怀疑某个来源没回来、或回填卡住时再展开看。",
         backfill_job: "回填任务",
         newsnow_degraded: "NewsNow 上游暂时拥挤，当前快照已跳过；历史新闻线和历史新闻列表不受影响。",
         no_detail: "暂无更多细节。",
+      },
+      disclosure: {
+        open: "展开",
+        close: "收起",
       },
       status: {
         kind: "类型",
@@ -244,6 +281,7 @@
       },
       trend: {
         subtitle: "周期 {period}。当前可见 {count} 个来源。",
+        context: "{mode} · 周期 {period} · 当前可见 {count} 个来源。",
         no_history: "还没有历史新闻点位。首次搜索会先现抓一轮历史新闻，后台再继续补。",
         one_point: "当前只有 1 个快照点位。若历史新闻还没补到，就会先从当前快照起步。",
         curve: "当前看到的是快照累计线，后续如果补到更多带时间的内容，会切成历史新闻线。",
@@ -251,6 +289,7 @@
         history_curve: "历史新闻线已按内容发布时间补出，后续采集还会继续补齐。",
         no_visible: "当前还没有可见趋势线。普通关键词会先尝试按带发布时间的内容回溯；如果时间信息还不够，就先从今日快照起步。",
         points: "{count} 个点位",
+        date_separator: " - ",
       },
       source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", keyword_history: "历史新闻" },
       task_type: { history: "历史", content: "内容", snapshot: "快照" },
@@ -347,6 +386,7 @@
       result: {
         kicker_repo: "Repository query",
         kicker_keyword: "Keyword query",
+        brief_title: "Signal brief",
         health_ready: "Ready to read",
         health_backfill: "Backfilling",
         health_attention: "Needs attention",
@@ -395,6 +435,34 @@
         saving: "Saving...",
         untrack: "Untrack",
         update_error: "Failed to update tracked keyword.",
+      },
+      guide: {
+        trend_title: "Read the trend first",
+        trend_body: "Decide whether the signal is steadily rising or just a one-day spike.",
+        snapshot_title: "Then check today's readout",
+        snapshot_body: "Confirm how many hits landed today and how much platform coverage you actually have.",
+        availability_title: "Then verify availability",
+        availability_body: "Separate ready sources from backfill-in-progress states and temporary upstream failures.",
+        content_title: "Finish with the content stream",
+        content_body: "Use concrete news, PRs, and releases to explain why the line moved.",
+      },
+      ops: {
+        title: "Advanced operator tools",
+        subtitle: "Ignore this area for normal reading. Open it only when you need to debug collection, providers, or scheduled jobs.",
+        open: "Open advanced tools",
+        close: "Hide advanced tools",
+        scheduler_kicker: "Scheduler",
+        scheduler_title: "Check timed jobs",
+        scheduler_body: "Confirm the background loop is running and whether the last iteration failed.",
+        provider_kicker: "Providers",
+        provider_title: "Probe real source connectivity",
+        provider_body: "Inspect GitHub and NewsNow availability, then run a smoke search if needed.",
+        collect_kicker: "Manual trigger",
+        collect_title: "Force a collect run",
+        collect_body: "Run collection and backfill immediately for the watchlist or a single query.",
+        runs_kicker: "Audit",
+        runs_title: "See what the backend just did",
+        runs_body: "Quickly tell whether stale data comes from no run, a slow run, or an upstream failure.",
       },
       action: {
         refresh: "Refresh",
@@ -483,8 +551,10 @@
         default: "Start with a direct GitHub path for the strongest first-run result. Plain keywords return a snapshot first, then fill in historical news and content.",
       },
       content: {
+        kicker: "Context",
         title: "Context stream",
         subtitle: "Recent items associated with the current query.",
+        summary: "Open this only when you want to explain why the line moved using concrete news, PRs, and releases.",
         no_items: "No {source}content items yet. Collection will populate this area when that source is available.",
         no_summary: "No summary available yet.",
       },
@@ -503,11 +573,17 @@
         updated_at: "Updated at",
       },
       availability: {
+        kicker: "Data state",
         title: "Availability",
         subtitle: "The UI treats partial success as normal.",
+        summary: "You usually do not need this section. Open it only when a source seems missing or backfill looks stuck.",
         backfill_job: "Backfill job",
         newsnow_degraded: "NewsNow is temporarily overloaded, so the live snapshot was skipped. Historical news and the trend line are still available.",
         no_detail: "No additional detail provided.",
+      },
+      disclosure: {
+        open: "Open",
+        close: "Hide",
       },
       status: {
         kind: "Kind",
@@ -527,6 +603,7 @@
       },
       trend: {
         subtitle: "Period {period}. {count} visible source(s).",
+        context: "{mode} · Period {period} · {count} visible source(s).",
         no_history: "No historical news points yet. The first lookup will try a live historical fetch, then background collection keeps extending it.",
         one_point: "Only one snapshot point is visible right now. If dated history is still missing, the curve starts from the live snapshot first.",
         curve: "The current curve is still the accumulated snapshot view. Once more dated content lands, it will switch over to the historical news line.",
@@ -534,6 +611,7 @@
         history_curve: "The historical news line is backfilled from publish times, and later collections will keep extending it.",
         no_visible: "No visible trend line is ready yet. Plain keywords first try to backfill from dated content; if that is still sparse, the curve starts from today's snapshot.",
         points: "{count} points",
+        date_separator: " - ",
       },
       source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", keyword_history: "News history" },
       task_type: { history: "history", content: "content", snapshot: "snapshot" },
@@ -660,6 +738,7 @@
   let renderScheduled = false;
   let renderFrameHandle = 0;
   let syncedLocale = null;
+  let lastResultQueryKey = "";
 
   const elements = {
     searchViewLink: document.querySelector('[data-view-link="search"]'),
@@ -668,6 +747,7 @@
     langEnButton: document.getElementById("lang-en-button"),
     heroSection: document.getElementById("hero-section"),
     secondaryGrid: document.getElementById("secondary-grid"),
+    trendPanel: document.getElementById("trend-panel"),
     resultSummary: document.getElementById("result-summary"),
     resultKicker: document.getElementById("result-kicker"),
     resultHealthChip: document.getElementById("result-health-chip"),
@@ -694,6 +774,7 @@
     trackedEmptyState: document.getElementById("tracked-empty-state"),
     trackedRefreshButton: document.getElementById("tracked-refresh-button"),
     trackedError: document.getElementById("tracked-error"),
+    operationsDisclosure: document.getElementById("operations-disclosure"),
     operationsShell: document.getElementById("operations-shell"),
     operationsRefreshButton: document.getElementById("operations-refresh-button"),
     schedulerError: document.getElementById("scheduler-error"),
@@ -721,7 +802,8 @@
     collectResults: document.getElementById("collect-results"),
     runsError: document.getElementById("runs-error"),
     collectRuns: document.getElementById("collect-runs"),
-    statusRibbon: document.getElementById("status-ribbon"),
+    contentDisclosure: document.getElementById("content-disclosure"),
+    availabilityDisclosure: document.getElementById("availability-disclosure"),
     trendHeading: document.getElementById("trend-heading"),
     trendSubtitle: document.getElementById("trend-subtitle"),
     trendNote: document.getElementById("trend-note"),
@@ -729,7 +811,6 @@
     seriesLegend: document.getElementById("series-legend"),
     seriesGrid: document.getElementById("series-grid"),
     contentList: document.getElementById("content-list"),
-    snapshotCards: document.getElementById("snapshot-cards"),
     availabilityList: document.getElementById("availability-list"),
   };
 
@@ -977,6 +1058,17 @@
     });
   }
 
+  function formatChartDate(value, includeYear) {
+    if (!value) {
+      return t("generic.na");
+    }
+    return new Date(value).toLocaleDateString(state.locale === "zh" ? "zh-CN" : "en-US", {
+      ...(includeYear ? { year: "numeric" } : {}),
+      month: state.locale === "zh" ? "numeric" : "short",
+      day: "numeric",
+    });
+  }
+
   function formatDuration(value) {
     if (value === null || value === undefined) {
       return t("generic.na");
@@ -1177,13 +1269,6 @@
     return state.result.trend.series.filter((series) => !state.hiddenSeriesKeys.includes(getSeriesKey(series)));
   }
 
-  function getHeading() {
-    if (!state.result) {
-      return t("heading.default");
-    }
-    return state.result.keyword.kind === "github_repo" ? t("heading.repo") : t("heading.keyword");
-  }
-
   function getKeywordHistorySeries() {
     if (!state.result) {
       return null;
@@ -1338,22 +1423,59 @@
     };
   }
 
-  function getAvailabilityDetail(counts) {
-    if (!counts.total) {
-      return t("result.status_sources_na");
+  function orderSeriesForDisplay(seriesList) {
+    if (!seriesList.length) {
+      return [];
     }
+    const primarySeries = getPrimarySeries();
+    if (!primarySeries) {
+      return seriesList.slice();
+    }
+    const primaryKey = getSeriesKey(primarySeries);
+    return seriesList.slice().sort(function (left, right) {
+      const leftWeight = getSeriesKey(left) === primaryKey ? 0 : 1;
+      const rightWeight = getSeriesKey(right) === primaryKey ? 0 : 1;
+      return leftWeight - rightWeight;
+    });
+  }
 
-    const details = [];
-    if (counts.failed) {
-      details.push(t("result.status_sources_failed", { count: counts.failed }));
+  function getSeriesDateRange(points) {
+    if (!points.length) {
+      return t("generic.na");
     }
-    if (counts.waiting) {
-      details.push(t("result.status_sources_waiting", { count: counts.waiting }));
+    const first = points[0];
+    const last = points[points.length - 1];
+    const firstDate = new Date(first.bucket_start);
+    const lastDate = new Date(last.bucket_start);
+    const includeYear = firstDate.getFullYear() !== lastDate.getFullYear();
+    const startLabel = formatChartDate(first.bucket_start, includeYear);
+    const endLabel = formatChartDate(last.bucket_start, includeYear);
+    if (startLabel === endLabel) {
+      return startLabel;
     }
-    if (!counts.failed && !counts.waiting) {
-      details.push(t("result.sources_all_ready"));
+    return `${startLabel}${t("trend.date_separator")}${endLabel}`;
+  }
+
+  function buildSparklineAxis(points) {
+    if (!points.length) {
+      return "";
     }
-    return details.join(" ");
+    if (points.length === 1) {
+      return `
+        <div class="sparkline-axis sparkline-axis-single">
+          <span>${formatChartDate(points[0].bucket_start, true)}</span>
+        </div>
+      `;
+    }
+    const first = points[0];
+    const last = points[points.length - 1];
+    const includeYear = new Date(first.bucket_start).getFullYear() !== new Date(last.bucket_start).getFullYear();
+    return `
+      <div class="sparkline-axis">
+        <span>${formatChartDate(first.bucket_start, includeYear)}</span>
+        <span>${formatChartDate(last.bucket_start, includeYear)}</span>
+      </div>
+    `;
   }
 
   function sparklineSvg(points) {
@@ -1375,10 +1497,13 @@
       .join(" ");
     const area = `${path} L ${width} ${height} L 0 ${height} Z`;
     return `
-      <svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-        <path class="sparkline-area" d="${area}"></path>
-        <path class="sparkline-path" d="${path}"></path>
-      </svg>
+      <div class="sparkline-wrap">
+        <svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+          <path class="sparkline-area" d="${area}"></path>
+          <path class="sparkline-path" d="${path}"></path>
+        </svg>
+        ${buildSparklineAxis(points)}
+      </div>
     `;
   }
 
@@ -1393,6 +1518,9 @@
     if (!state.result) {
       elements.resultSummary.classList.add("hidden");
       elements.resultStats.innerHTML = "";
+      elements.resultKicker.classList.add("hidden");
+      elements.resultHealthChip.classList.add("hidden");
+      elements.trackButton.classList.add("hidden");
       return;
     }
 
@@ -1453,7 +1581,10 @@
       state.result.keyword.kind === "github_repo" ? t("result.kicker_repo") : t("result.kicker_keyword");
     elements.resultHealthChip.textContent = health.label;
     elements.resultHealthChip.dataset.tone = health.tone;
-    elements.resultTitle.textContent = getDisplayQuery();
+    elements.resultKicker.classList.remove("hidden");
+    elements.resultHealthChip.classList.remove("hidden");
+    elements.trackButton.classList.remove("hidden");
+    elements.resultTitle.textContent = t("result.brief_title");
     elements.resultDeck.textContent =
       state.result.keyword.kind === "github_repo"
         ? t("result.deck_repo", { count: state.result.content_items.length })
@@ -1481,60 +1612,12 @@
     elements.resultSummary.classList.remove("hidden");
   }
 
-  function renderStatusRibbon() {
-    if (!state.result) {
-      elements.statusRibbon.classList.add("hidden");
-      elements.statusRibbon.innerHTML = "";
+  function renderTrackedKeywords() {
+    const shouldShowTrackedPanel = state.view === "tracked";
+    elements.trackedPanel.classList.toggle("hidden", !shouldShowTrackedPanel);
+    if (!shouldShowTrackedPanel) {
       return;
     }
-
-    const health = getResultHealth();
-    const counts = health.availabilityCounts;
-    const diagnostics = [
-      {
-        label: t("result.status_tracking"),
-        value: state.result.keyword.is_tracked ? t("status.tracked") : t("status.idle"),
-        detail: `${translateToken("kind", state.result.keyword.kind)} · ${t("result.meta_period", {
-          value: formatPeriodLabel(state.period),
-        })}`,
-        tone: state.result.keyword.is_tracked ? "ready" : "neutral",
-      },
-      {
-        label: t("result.status_sources"),
-        value: counts.total ? t("result.status_sources_ready", { ready: counts.ready, total: counts.total }) : t("generic.na"),
-        detail: getAvailabilityDetail(counts),
-        tone: counts.total ? health.tone : "neutral",
-      },
-      {
-        label: t("result.status_backfill"),
-        value: state.result.backfill_job ? formatStatusLabel(state.result.backfill_job.status) : t("status_value.idle"),
-        detail: state.result.backfill_job
-          ? state.result.backfill_job.error_message
-            ? summarizeAvailabilityMessage(state.result.backfill_job.error_message)
-            : t("result.status_backfill_detail", { count: state.result.backfill_job.tasks.length })
-          : t("result.status_backfill_idle"),
-        tone: state.result.backfill_job ? getToneFromStatus(state.result.backfill_job.status) : "neutral",
-      },
-    ];
-
-    elements.statusRibbon.innerHTML = diagnostics
-      .map(
-        (item) => `
-          <article class="diagnostic-card" data-tone="${item.tone}">
-            <span>${item.label}</span>
-            <strong>${item.value}</strong>
-            <p>${item.detail}</p>
-          </article>
-        `
-      )
-      .join("");
-    elements.statusRibbon.classList.remove("hidden");
-  }
-
-  function renderTrackedKeywords() {
-    const shouldShowTrackedPanel =
-      state.view === "tracked" || state.trackedLoading || Boolean(state.trackedError) || state.trackedKeywords.length > 0;
-    elements.trackedPanel.classList.toggle("hidden", !shouldShowTrackedPanel);
     elements.trackedRefreshButton.disabled = state.trackedLoading || state.trackedBusyIds.length > 0;
     elements.trackedRefreshButton.textContent = state.trackedLoading ? t("action.refreshing") : t("action.refresh");
 
@@ -1586,13 +1669,26 @@
 
   function renderOperations() {
     if (state.view !== "tracked") {
+      elements.operationsDisclosure.classList.add("hidden");
       elements.operationsShell.classList.add("hidden");
       return;
     }
 
+    elements.operationsDisclosure.classList.remove("hidden");
     elements.operationsShell.classList.toggle("hidden", state.view !== "tracked");
     const operationsLoading = state.schedulerLoading || state.providerLoading || state.collectRunsLoading;
     const operationsBusy = operationsLoading || state.collectBusy || state.providerVerifyBusy || state.providerSmokeBusy;
+    const shouldOpenOperations =
+      operationsBusy ||
+      Boolean(state.schedulerError) ||
+      Boolean(state.providerError) ||
+      Boolean(state.collectError) ||
+      Boolean(state.collectFeedback) ||
+      Boolean(state.providerVerifyFeedback) ||
+      Boolean(state.providerSmokeResult);
+    if (shouldOpenOperations) {
+      elements.operationsDisclosure.open = true;
+    }
     elements.operationsRefreshButton.disabled =
       operationsBusy;
     elements.operationsRefreshButton.textContent = operationsLoading
@@ -1825,7 +1921,7 @@
   }
 
   function renderRecentSearches() {
-    if (!state.recentSearches.length) {
+    if (state.view !== "search" || state.result || !state.recentSearches.length) {
       elements.recentPanel.classList.add("hidden");
       elements.recentSearches.innerHTML = "";
       return;
@@ -1845,15 +1941,19 @@
   }
 
   function renderTrend() {
-    const visibleSeries = getVisibleSeries();
-
-    elements.trendHeading.textContent = state.result
+    const orderedSeries = state.result ? orderSeriesForDisplay(state.result.trend.series) : [];
+    const visibleSeries = orderSeriesForDisplay(getVisibleSeries());
+    const trendMode = state.result
       ? state.result.keyword.kind === "github_repo"
         ? t("result.trend_title_repo")
         : t("result.trend_title_keyword")
+      : "";
+
+    elements.trendHeading.textContent = state.result
+      ? getDisplayQuery()
       : t("heading.default");
     elements.trendSubtitle.textContent = state.result
-      ? t("trend.subtitle", { period: formatPeriodLabel(state.period), count: visibleSeries.length })
+      ? t("trend.context", { mode: trendMode, period: formatPeriodLabel(state.period), count: visibleSeries.length })
       : "";
 
     const trendNote = getTrendNote();
@@ -1870,7 +1970,7 @@
       elements.seriesLegend.innerHTML = "";
     } else {
       elements.seriesLegend.classList.remove("hidden");
-      elements.seriesLegend.innerHTML = state.result.trend.series
+      elements.seriesLegend.innerHTML = orderedSeries
         .map((series) => {
           const key = getSeriesKey(series);
           const hidden = state.hiddenSeriesKeys.includes(key) ? " is-hidden" : "";
@@ -1897,7 +1997,10 @@
                 <h3>${formatSeriesLabel(series)}</h3>
                 <p>${formatSourceTypeLabel(series.source_type)}</p>
               </div>
-              <p>${t("trend.points", { count: series.points.length })}</p>
+              <div class="series-meta">
+                <p>${t("trend.points", { count: series.points.length })}</p>
+                <span>${getSeriesDateRange(series.points)}</span>
+              </div>
             </header>
             ${sparklineSvg(series.points)}
           </article>
@@ -1939,36 +2042,13 @@
       .join("");
   }
 
-  function renderSnapshot() {
-    if (!state.result) {
-      elements.snapshotCards.innerHTML = "";
-      return;
-    }
-
-    const snapshotItems = [
-      [t("snapshot.github_delta"), state.result.snapshot.github_star_today ?? t("generic.na")],
-      [t("snapshot.newsnow_platforms"), state.result.snapshot.newsnow_platform_count ?? t("generic.na")],
-      [t("snapshot.newsnow_items"), state.result.snapshot.newsnow_item_count ?? t("generic.na")],
-      [t("snapshot.updated_at"), formatDate(state.result.snapshot.updated_at)],
-    ];
-
-    elements.snapshotCards.innerHTML = snapshotItems
-      .map(
-        ([label, value]) => `
-          <div class="stat-card">
-            <span>${label}</span>
-            <strong>${value}</strong>
-          </div>
-        `
-      )
-      .join("");
-  }
-
   function renderAvailability() {
     if (!state.result) {
       elements.availabilityList.innerHTML = "";
+      elements.availabilityDisclosure.classList.add("hidden");
       return;
     }
+    elements.availabilityDisclosure.classList.remove("hidden");
 
     const taskDetails = [];
     if (state.result.backfill_job) {
@@ -1991,6 +2071,7 @@
     }
 
     elements.availabilityList.innerHTML = Object.entries(state.result.availability)
+      .filter(([, value]) => !["not_applicable", "skipped"].includes(value))
       .map(
         ([key, value]) => `
           <div class="availability-item">
@@ -2015,22 +2096,29 @@
         )
       )
       .join("");
+
+    const counts = getAvailabilityCounts();
+    const shouldOpenAvailability =
+      counts.failed > 0 || counts.waiting > 0 || Boolean(state.result.backfill_job && state.result.backfill_job.error_message);
+    if (shouldOpenAvailability) {
+      elements.availabilityDisclosure.open = true;
+    }
   }
 
   function performRender() {
     syncLocaleChrome();
     syncControls();
+    document.body.dataset.view = state.view;
+    document.body.dataset.resultState = state.result ? "ready" : state.loading ? "loading" : "idle";
     renderNavigation();
     renderRecentSearches();
     renderTrackedKeywords();
     renderOperations();
     const showGuidance = state.view === "search" && !state.result && !state.loading;
+    elements.searchForm.classList.toggle("hidden", state.view === "tracked");
     elements.starterGrid.classList.toggle("hidden", !showGuidance);
     elements.heroSection.classList.toggle("hidden", !showGuidance);
-    const showSecondaryGrid =
-      state.view === "tracked" ||
-      !elements.recentPanel.classList.contains("hidden") ||
-      !elements.trackedPanel.classList.contains("hidden");
+    const showSecondaryGrid = state.view === "tracked";
     elements.secondaryGrid.classList.toggle("hidden", !showSecondaryGrid);
     elements.searchButton.disabled = state.loading;
     elements.searchButton.textContent = state.loading ? t("search.searching") : t("search.submit");
@@ -2058,23 +2146,25 @@
 
     if (!state.result && !state.loading) {
       elements.emptyState.classList.add("hidden");
+      elements.trendPanel.classList.add("hidden");
       elements.resultSummary.classList.add("hidden");
       elements.dashboard.classList.add("hidden");
-      renderStatusRibbon();
       return;
     }
 
     elements.emptyState.classList.add("hidden");
     if (state.result) {
+      elements.trendPanel.classList.remove("hidden");
       renderResultSummary();
       elements.dashboard.classList.remove("hidden");
-      renderStatusRibbon();
       renderTrend();
       renderContent();
-      renderSnapshot();
       renderAvailability();
     } else {
+      elements.trendPanel.classList.add("hidden");
       elements.resultSummary.classList.add("hidden");
+      elements.dashboard.classList.add("hidden");
+      elements.availabilityDisclosure.classList.add("hidden");
     }
   }
 
@@ -2210,6 +2300,7 @@
 
   async function loadSearch() {
     if (!state.query) {
+      lastResultQueryKey = "";
       state.result = null;
       state.error = null;
       state.loading = false;
@@ -2242,6 +2333,13 @@
       }
 
       state.result = payload;
+      const nextResultQueryKey =
+        payload.keyword.kind === "github_repo" ? payload.keyword.normalized_query : payload.keyword.raw_query;
+      if (nextResultQueryKey !== lastResultQueryKey) {
+        elements.contentDisclosure.open = false;
+        elements.availabilityDisclosure.open = false;
+        lastResultQueryKey = nextResultQueryKey;
+      }
       rememberRecentSearch(payload);
       state.hiddenSeriesKeys = state.hiddenSeriesKeys.filter((key) =>
         payload.trend.series.some((series) => getSeriesKey(series) === key)

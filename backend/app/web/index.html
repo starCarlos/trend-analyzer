@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TrendScope</title>
-    <link rel="stylesheet" href="/assets/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260318-ui-refresh-2" />
   </head>
   <body>
     <main class="page-shell">
@@ -44,6 +50,44 @@
           <span data-i18n="search.hint_keyword">普通关键词默认先看 30 天；第一次搜索就会现抓一轮历史新闻，再补当前快照。</span>
         </div>
       </form>
+
+      <section class="hero" id="hero-section">
+        <div class="hero-card hero-lead">
+          <div class="hero-copy">
+            <div class="hero-label">
+              <span>TrendScope</span>
+              <span data-i18n="hero.runtime">Python 运行时</span>
+            </div>
+            <h1 data-i18n="hero.headline">热榜会骗人，时间线不会。</h1>
+            <p data-i18n="hero.description">仓库查询返回 GitHub 历史与上下文，关键词查询返回当前快照与补回来的历史新闻线。</p>
+          </div>
+          <div class="hero-band">
+            <span class="hero-band-item" data-i18n="hero.band_github">GitHub 历史</span>
+            <span class="hero-band-item" data-i18n="hero.band_newsnow">NewsNow 快照</span>
+            <span class="hero-band-item" data-i18n="hero.band_backfill">异步回填</span>
+          </div>
+        </div>
+        <aside class="hero-card hero-aside">
+          <div class="hero-aside-copy">
+            <h2 data-i18n="hero.scope_title">当前范围</h2>
+            <ul>
+              <li data-i18n="hero.scope_github">GitHub 历史趋势，仅用于仓库类查询</li>
+              <li data-i18n="hero.scope_newsnow">NewsNow 快照，覆盖仓库和普通关键词</li>
+              <li data-i18n="hero.scope_tracking">追踪状态、来源筛选和异步回填状态</li>
+            </ul>
+          </div>
+          <div class="hero-note-stack">
+            <article class="hero-note">
+              <strong data-i18n="hero.note_fast_title">先给首包</strong>
+              <p data-i18n="hero.note_fast_body">首包不等全部回填完成，先把当前可用结果交出来。</p>
+            </article>
+            <article class="hero-note">
+              <strong data-i18n="hero.note_trace_title">把状态公开</strong>
+              <p data-i18n="hero.note_trace_body">来源可用性、回填进度和追踪状态都直接展示，不藏在后台。</p>
+            </article>
+          </div>
+        </aside>
+      </section>
 
       <section class="starter-grid" id="starter-grid">
         <section class="panel starter-panel">
@@ -99,44 +143,6 @@
         </section>
       </section>
 
-      <section class="hero" id="hero-section">
-        <div class="hero-card hero-lead">
-          <div class="hero-copy">
-            <div class="hero-label">
-              <span>TrendScope</span>
-              <span data-i18n="hero.runtime">Python 运行时</span>
-            </div>
-            <h1 data-i18n="hero.headline">热榜会骗人，时间线不会。</h1>
-            <p data-i18n="hero.description">仓库查询返回 GitHub 历史与上下文，关键词查询返回当前快照与补回来的历史新闻线。</p>
-          </div>
-          <div class="hero-band">
-            <span class="hero-band-item" data-i18n="hero.band_github">GitHub 历史</span>
-            <span class="hero-band-item" data-i18n="hero.band_newsnow">NewsNow 快照</span>
-            <span class="hero-band-item" data-i18n="hero.band_backfill">异步回填</span>
-          </div>
-        </div>
-        <aside class="hero-card hero-aside">
-          <div class="hero-aside-copy">
-            <h2 data-i18n="hero.scope_title">当前范围</h2>
-            <ul>
-              <li data-i18n="hero.scope_github">GitHub 历史趋势，仅用于仓库类查询</li>
-              <li data-i18n="hero.scope_newsnow">NewsNow 快照，覆盖仓库和普通关键词</li>
-              <li data-i18n="hero.scope_tracking">追踪状态、来源筛选和异步回填状态</li>
-            </ul>
-          </div>
-          <div class="hero-note-stack">
-            <article class="hero-note">
-              <strong data-i18n="hero.note_fast_title">先给首包</strong>
-              <p data-i18n="hero.note_fast_body">首包不等全部回填完成，先把当前可用结果交出来。</p>
-            </article>
-            <article class="hero-note">
-              <strong data-i18n="hero.note_trace_title">把状态公开</strong>
-              <p data-i18n="hero.note_trace_body">来源可用性、回填进度和追踪状态都直接展示，不藏在后台。</p>
-            </article>
-          </div>
-        </aside>
-      </section>
-
       <section class="secondary-grid" id="secondary-grid">
         <section class="recent-panel hero-card hidden" id="recent-panel">
           <div class="panel-header recent-header">
@@ -163,7 +169,42 @@
         </section>
       </section>
 
-      <section class="operations-grid hidden" id="operations-shell">
+      <details class="operations-disclosure hidden" id="operations-disclosure">
+        <summary class="operations-summary">
+          <div class="operations-summary-copy">
+            <strong data-i18n="ops.title">进阶运维工具</strong>
+            <p data-i18n="ops.subtitle">普通查看趋势时可忽略；只有在排查采集、数据源或定时任务时才需要展开。</p>
+          </div>
+          <span class="operations-summary-toggle">
+            <span class="ops-toggle-closed" data-i18n="ops.open">展开进阶工具</span>
+            <span class="ops-toggle-open" data-i18n="ops.close">收起进阶工具</span>
+          </span>
+        </summary>
+
+        <div class="ops-guide-grid">
+          <article class="ops-guide-card">
+            <span class="ops-guide-kicker" data-i18n="ops.scheduler_kicker">调度器</span>
+            <strong data-i18n="ops.scheduler_title">看定时任务</strong>
+            <p data-i18n="ops.scheduler_body">确认后台轮询是否在跑，以及最近一轮有没有报错。</p>
+          </article>
+          <article class="ops-guide-card">
+            <span class="ops-guide-kicker" data-i18n="ops.provider_kicker">数据源</span>
+            <strong data-i18n="ops.provider_title">查真实源连通性</strong>
+            <p data-i18n="ops.provider_body">排查 GitHub 和 NewsNow 是否可用，必要时做 smoke 搜索。</p>
+          </article>
+          <article class="ops-guide-card">
+            <span class="ops-guide-kicker" data-i18n="ops.collect_kicker">手动触发</span>
+            <strong data-i18n="ops.collect_title">补抓数据</strong>
+            <p data-i18n="ops.collect_body">对追踪列表或某个 query 立刻执行一次采集和回填。</p>
+          </article>
+          <article class="ops-guide-card">
+            <span class="ops-guide-kicker" data-i18n="ops.runs_kicker">审计</span>
+            <strong data-i18n="ops.runs_title">看后台最近做了什么</strong>
+            <p data-i18n="ops.runs_body">快速判断数据没更新，到底是没跑、跑慢了，还是来源失败。</p>
+          </article>
+        </div>
+
+        <section class="operations-grid hidden" id="operations-shell">
         <section class="panel">
           <div class="panel-header">
             <div>
@@ -261,7 +302,8 @@
           <div class="inline-error hidden" id="runs-error"></div>
           <div class="ops-runs" id="collect-runs"></div>
         </section>
-      </section>
+        </section>
+      </details>
 
       <div class="error-state hidden" id="error-state"></div>
       <div class="empty-state" data-i18n="empty.default" id="empty-state">优先使用 GitHub 直接路径开始，首次结果更强。普通关键词会先返回快照，再补历史新闻和内容流。</div>
@@ -281,81 +323,91 @@
         </div>
       </section>
 
+      <section class="panel trend-panel hidden" id="trend-panel">
+        <div class="panel-header trend-panel-header">
+          <div class="trend-panel-copy">
+            <div class="trend-topline">
+              <span class="result-kicker hidden" id="result-kicker">仓库查询</span>
+              <span class="result-health-chip hidden" id="result-health-chip">可直接看</span>
+            </div>
+            <h2 class="panel-title" id="trend-heading">搜索一个仓库或关键词。</h2>
+            <p class="panel-subtitle" id="trend-subtitle"></p>
+            <p class="trend-note hidden" id="trend-note"></p>
+          </div>
+          <div class="trend-panel-actions">
+            <button class="button-ghost hidden" id="track-button" type="button">追踪</button>
+          </div>
+        </div>
+        <div class="series-legend hidden" id="series-legend"></div>
+        <div class="series-grid" id="series-grid"></div>
+      </section>
+
       <section class="result-summary hidden" id="result-summary">
         <div class="result-summary-main">
           <div class="result-summary-copy">
-            <div class="result-summary-topline">
-              <span class="result-kicker" id="result-kicker">仓库查询</span>
-              <span class="result-health-chip" id="result-health-chip">可直接看</span>
-            </div>
-            <h2 class="result-title" id="result-title">openclaw/openclaw</h2>
+            <h2 class="result-title" id="result-title">信号摘要</h2>
             <p class="result-deck" id="result-deck"></p>
             <div class="result-meta" id="result-meta"></div>
-          </div>
-          <div class="result-summary-actions">
-            <button class="button-ghost" id="track-button" type="button">追踪</button>
           </div>
         </div>
         <div class="result-stats" id="result-stats"></div>
       </section>
 
-      <div class="status-ribbon hidden" id="status-ribbon"></div>
-
       <section class="dashboard hidden" id="dashboard">
-        <div class="dashboard-main">
-          <section class="panel">
+        <details class="result-disclosure content-disclosure" id="content-disclosure">
+          <summary class="result-disclosure-summary">
+            <div class="result-disclosure-copy">
+              <span class="result-disclosure-kicker" data-i18n="content.kicker">内容解释</span>
+              <strong data-i18n="content.title">相关内容流</strong>
+              <p data-i18n="content.summary">只有当你想知道曲线为什么变化时，再展开这块看具体新闻、PR 和 release。</p>
+            </div>
+            <span class="result-disclosure-toggle">
+              <span class="disclosure-toggle-closed" data-i18n="disclosure.open">展开</span>
+              <span class="disclosure-toggle-open" data-i18n="disclosure.close">收起</span>
+            </span>
+          </summary>
+          <section class="panel dashboard-content disclosure-panel">
             <div class="panel-header">
               <div>
-                <h2 class="panel-title" id="trend-heading">搜索一个仓库或关键词。</h2>
-                <p class="panel-subtitle" id="trend-subtitle"></p>
-                <p class="trend-note hidden" id="trend-note"></p>
+                <h2 class="panel-title" data-i18n="content.title">相关内容流</h2>
+                <p class="panel-subtitle" data-i18n="content.subtitle">与当前查询关联的最近条目。</p>
               </div>
+              <select class="period-select" id="content-source-select">
+                <option data-i18n="content_source.all" value="all" selected>全部来源</option>
+                <option data-i18n="content_source.newsnow" value="newsnow">NewsNow</option>
+                <option data-i18n="content_source.google_news" value="google_news">Google News</option>
+                <option data-i18n="content_source.github" value="github">GitHub</option>
+              </select>
             </div>
-            <div class="series-legend hidden" id="series-legend"></div>
-            <div class="series-grid" id="series-grid"></div>
+            <div class="content-list" id="content-list"></div>
           </section>
+        </details>
 
-          <div class="stack">
-            <section class="panel">
-              <div class="panel-header">
-                <div>
-                  <h2 class="panel-title" data-i18n="snapshot.title">今日快照</h2>
-                  <p class="panel-subtitle" data-i18n="snapshot.subtitle">只展示直接来源事实，不做综合评分。</p>
-                </div>
-              </div>
-              <div class="cards" id="snapshot-cards"></div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-header">
-                <div>
-                  <h2 class="panel-title" data-i18n="availability.title">数据可用性</h2>
-                  <p class="panel-subtitle" data-i18n="availability.subtitle">前端把部分成功视为正常状态。</p>
-                </div>
-              </div>
-              <div class="availability-list" id="availability-list"></div>
-            </section>
-          </div>
-        </div>
-
-        <section class="panel dashboard-content">
-          <div class="panel-header">
-            <div>
-              <h2 class="panel-title" data-i18n="content.title">相关内容流</h2>
-              <p class="panel-subtitle" data-i18n="content.subtitle">与当前查询关联的最近条目。</p>
+        <details class="result-disclosure hidden" id="availability-disclosure">
+          <summary class="result-disclosure-summary">
+            <div class="result-disclosure-copy">
+              <span class="result-disclosure-kicker" data-i18n="availability.kicker">数据状态</span>
+              <strong data-i18n="availability.title">数据可用性</strong>
+              <p data-i18n="availability.summary">平时不用盯这一块；只有怀疑某个来源没回来、或回填卡住时再展开看。</p>
             </div>
-            <select class="period-select" id="content-source-select">
-              <option data-i18n="content_source.all" value="all" selected>全部来源</option>
-              <option data-i18n="content_source.newsnow" value="newsnow">NewsNow</option>
-              <option data-i18n="content_source.google_news" value="google_news">Google News</option>
-              <option data-i18n="content_source.github" value="github">GitHub</option>
-            </select>
-          </div>
-          <div class="content-list" id="content-list"></div>
-        </section>
+            <span class="result-disclosure-toggle">
+              <span class="disclosure-toggle-closed" data-i18n="disclosure.open">展开</span>
+              <span class="disclosure-toggle-open" data-i18n="disclosure.close">收起</span>
+            </span>
+          </summary>
+          <section class="panel disclosure-panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" data-i18n="availability.title">数据可用性</h2>
+                <p class="panel-subtitle" data-i18n="availability.subtitle">前端把部分成功视为正常状态。</p>
+              </div>
+            </div>
+            <div class="availability-list" id="availability-list"></div>
+          </section>
+        </details>
       </section>
     </main>
 
-    <script src="/assets/app.js"></script>
+    <script src="/assets/app.js?v=20260318-ui-refresh-2"></script>
   </body>
 </html>

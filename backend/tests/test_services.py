@@ -16,7 +16,7 @@ os.environ.setdefault("APP_ENV", "test")
 from app.config import Settings
 from app.database import Base, SessionLocal, engine
 from app.main import health, index, provider_smoke, provider_status, provider_verify, tracked_page, web_dir
-from app.models import BackfillJob, BackfillJobTask, TrendPoint, utcnow
+from app.models import BackfillJob, BackfillJobTask, ContentItem, TrendPoint, utcnow
 from app.schemas import (
     ProviderCheckPayload,
     ProviderProbePayload,
@@ -76,6 +76,7 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIn('id="recent-panel"', html)
         self.assertIn('id="tracked-panel"', html)
         self.assertIn('id="operations-shell"', html)
+        self.assertIn('id="operations-disclosure"', html)
         self.assertIn('id="collect-form"', html)
         self.assertIn('id="collect-runs"', html)
         self.assertIn('id="provider-grid"', html)
@@ -84,6 +85,8 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIn('id="provider-smoke-query-input"', html)
         self.assertIn('id="provider-smoke-button"', html)
         self.assertIn('id="provider-smoke-grid"', html)
+        self.assertIn('id="content-disclosure"', html)
+        self.assertIn('id="availability-disclosure"', html)
         self.assertIn('data-locale-switch="zh"', html)
         self.assertIn('data-locale-switch="en"', html)
 
@@ -722,6 +725,33 @@ class ServiceTestCase(unittest.TestCase):
             "openclaw/openclaw",
         )
 
+    def test_github_repo_name_resolver_uses_direct_self_named_repo_probe_before_search(self) -> None:
+        settings = Settings(
+            provider_mode="real",
+            github_api_base_url="https://api.github.com",
+            request_timeout_seconds=8.0,
+        )
+
+        def request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del headers
+            if url.endswith("/repos/openclaw/openclaw"):
+                return (
+                    {
+                        "name": "OpenClaw",
+                        "full_name": "openclaw/openclaw",
+                        "owner": {"login": "openclaw"},
+                    },
+                    {},
+                )
+            if "/search/repositories?" in url:
+                raise AssertionError("search endpoint should not run when direct self-named probe succeeds")
+            raise AssertionError(url)
+
+        self.assertEqual(
+            resolve_github_repo_name("openclaw", settings=settings, request_json=request_json),
+            "openclaw/openclaw",
+        )
+
     def test_newsnow_endpoint_builder_prefers_query_param_and_keeps_legacy_fallback(self) -> None:
         self.assertEqual(
             build_newsnow_source_endpoint("https://newsnow.example.com", "weibo-hot"),
@@ -977,6 +1007,129 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIsNone(payload.backfill_job)
         self.assertEqual(payload.availability["newsnow_snapshot"], "not_applicable")
         self.assertEqual(payload.availability["google_news_archive"], "ready")
+
+    def test_repository_search_prefetches_google_news_inline_and_derives_timeline(self) -> None:
+        repo_name = f"repo-{uuid4().hex[:8]}"
+        query = f"owner-{uuid4().hex[:8]}/{repo_name}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        archive_requests: list[str] = []
+
+        class RepoArchiveProvider:
+            name = "repo-archive"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                raise AssertionError(f"unexpected news snapshot request for {keyword_query}")
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                archive_requests.append(keyword_query)
+                return [
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key=f"{keyword_query}:archive:1",
+                        title=f"{keyword_query} archive item 1",
+                        url="https://example.com/archive/1",
+                        summary="archive-1",
+                        author="provider",
+                        published_at=today - timedelta(days=3),
+                        meta_json="{}",
+                    ),
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key=f"{keyword_query}:archive:2",
+                        title=f"{keyword_query} archive item 2",
+                        url="https://example.com/archive/2",
+                        summary="archive-2",
+                        author="provider",
+                        published_at=today - timedelta(days=1),
+                        meta_json="{}",
+                    ),
+                ]
+
+        with patch("app.services.search.get_data_provider", return_value=RepoArchiveProvider()):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        self.assertEqual(archive_requests, [repo_name])
+        google_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "google_news"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in google_series.points], [1.0, 1.0])
+        self.assertTrue(any(item.source == "google_news" for item in payload.content_items))
+        self.assertEqual(payload.availability["google_news_archive"], "ready")
+        self.assertIsNotNone(payload.backfill_job)
+        self.assertIn(payload.backfill_job.status, {"pending", "running"})
+
+    def test_repository_search_default_content_mix_keeps_google_news_visible(self) -> None:
+        repo_name = f"repo-{uuid4().hex[:8]}"
+        query = f"owner-{uuid4().hex[:8]}/{repo_name}"
+        initial = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        for index in range(20):
+            self.db.add(
+                ContentItem(
+                    keyword_id=initial.keyword.id,
+                    source="github",
+                    source_type="backfill",
+                    external_key=f"{query}:github:{index}",
+                    title=f"github item {index}",
+                    url=f"https://example.com/github/{index}",
+                    summary="github",
+                    author="github",
+                    published_at=today - timedelta(minutes=index),
+                    meta_json="{}",
+                )
+            )
+
+        for index in range(2):
+            self.db.add(
+                ContentItem(
+                    keyword_id=initial.keyword.id,
+                    source="google_news",
+                    source_type="archive",
+                    external_key=f"{query}:google:{index}",
+                    title=f"{repo_name} news item {index}",
+                    url=f"https://example.com/google/{index}",
+                    summary="google",
+                    author="Google News",
+                    published_at=today - timedelta(days=15 + index),
+                    meta_json="{}",
+                )
+            )
+
+        self.db.commit()
+
+        refreshed = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+
+        self.assertTrue(any(item.source == "google_news" for item in refreshed.content_items))
+        self.assertEqual(sum(1 for item in refreshed.content_items if item.source == "google_news"), 2)
+        self.assertEqual(refreshed.availability["google_news_archive"], "ready")
 
     def test_keyword_search_refreshes_google_news_even_when_history_already_exists(self) -> None:
         query = f"refresh-archive-{uuid4().hex[:8]}"

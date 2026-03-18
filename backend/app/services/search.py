@@ -30,6 +30,7 @@ from app.services.backfill import (
     run_backfill_job,
 )
 from app.services.providers import get_data_provider
+from app.services.provider_types import TrendPointInput
 from app.services.query_parser import SearchTarget, resolve_search_query
 
 
@@ -152,15 +153,105 @@ def _has_keyword_history_content(db: Session, keyword_id: int) -> bool:
     )
 
 
-def _prefetch_keyword_history_inline(db: Session, keyword: Keyword) -> bool:
-    if keyword.kind != "keyword":
+def _has_google_news_timeline(db: Session, keyword_id: int) -> bool:
+    return (
+        db.scalar(
+            select(TrendPoint.id).where(
+                TrendPoint.keyword_id == keyword_id,
+                TrendPoint.source == "google_news",
+                TrendPoint.metric == "matched_item_count",
+                TrendPoint.source_type == "timeline",
+            )
+        )
+        is not None
+    )
+
+
+def _google_news_queries(keyword: Keyword) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    def add(candidate: str | None) -> None:
+        if not candidate:
+            return
+        normalized = " ".join(candidate.split()).strip().strip("/")
+        if not normalized:
+            return
+        identity = normalized.casefold()
+        if identity in seen:
+            return
+        seen.add(identity)
+        queries.append(normalized)
+
+    if keyword.kind == "keyword":
+        add(keyword.normalized_query)
+        return queries
+
+    raw_query = keyword.raw_query.strip()
+    if raw_query and "/" not in raw_query and not raw_query.startswith(("http://", "https://")):
+        add(raw_query)
+
+    repo_name = (keyword.target_ref or keyword.normalized_query).rsplit("/", 1)[-1]
+    add(repo_name)
+    return queries
+
+
+def _derive_google_news_timeline_points(db: Session, keyword: Keyword) -> list[TrendPointInput]:
+    content_items = list(
+        db.scalars(
+            select(ContentItem)
+            .where(
+                ContentItem.keyword_id == keyword.id,
+                ContentItem.source == "google_news",
+                ContentItem.published_at.is_not(None),
+            )
+            .order_by(ContentItem.published_at.asc(), ContentItem.id.asc())
+        )
+    )
+
+    counts_by_day: dict = {}
+    for item in content_items:
+        if not item.published_at:
+            continue
+        bucket_start = item.published_at.replace(hour=0, minute=0, second=0, microsecond=0)
+        counts_by_day[bucket_start] = counts_by_day.get(bucket_start, 0) + 1
+
+    if not counts_by_day:
+        return []
+
+    raw_json = json.dumps(
+        {
+            "query": keyword.normalized_query,
+            "derived_from": "google_news_archive",
+            "content_item_count": len(content_items),
+            "bucket_count": len(counts_by_day),
+        }
+    )
+
+    return [
+        TrendPointInput(
+            source="google_news",
+            metric="matched_item_count",
+            source_type="timeline",
+            bucket_granularity="day",
+            bucket_start=bucket_start,
+            value=float(count),
+            raw_json=raw_json,
+        )
+        for bucket_start, count in sorted(counts_by_day.items())
+    ]
+
+
+def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
+    if keyword.kind not in {"keyword", "github_repo"}:
         return False
 
     changed = False
     has_history = _has_keyword_history(db, keyword.id)
     has_history_content = _has_keyword_history_content(db, keyword.id)
+    has_google_news_timeline = _has_google_news_timeline(db, keyword.id)
 
-    if has_history_content and not has_history:
+    if keyword.kind == "keyword" and has_history_content and not has_history:
         for point in _derive_keyword_history_points(db, keyword):
             _upsert_trend_point(db, keyword.id, point)
         db.commit()
@@ -170,11 +261,16 @@ def _prefetch_keyword_history_inline(db: Session, keyword: Keyword) -> bool:
         provider = get_data_provider()
         archive_fetcher = getattr(provider, "fetch_google_news_archive", None)
         if callable(archive_fetcher):
-            try:
-                archive_items = archive_fetcher(keyword.normalized_query)
-            except Exception:
-                db.rollback()
-                archive_items = []
+            archive_items = []
+            for archive_query in _google_news_queries(keyword):
+                try:
+                    archive_items = archive_fetcher(archive_query)
+                except Exception:
+                    db.rollback()
+                    archive_items = []
+                    continue
+                if archive_items:
+                    break
             if archive_items:
                 for item in archive_items:
                     _upsert_content_item(db, keyword.id, item)
@@ -185,8 +281,14 @@ def _prefetch_keyword_history_inline(db: Session, keyword: Keyword) -> bool:
     if has_history_content and (changed or not has_history):
         for point in _derive_keyword_history_points(db, keyword):
             _upsert_trend_point(db, keyword.id, point)
-        db.commit()
-        return True
+        changed = True
+
+    if keyword.kind == "github_repo":
+        google_news_timeline = _derive_google_news_timeline_points(db, keyword)
+        if google_news_timeline and (changed or not has_google_news_timeline):
+            for point in google_news_timeline:
+                _upsert_trend_point(db, keyword.id, point)
+            changed = True
 
     if changed:
         db.commit()
@@ -223,12 +325,19 @@ def _select_visible_content_items(
     parsed_content_source: str | None,
 ) -> list[ContentItem]:
     visible = _filter_content(_filter_visible_contents(contents), days)
-    if keyword.kind != "keyword" or parsed_content_source:
+    if parsed_content_source:
+        return visible[:20]
+    if keyword.kind not in {"keyword", "github_repo"}:
         return visible[:20]
 
     archive_items = [item for item in visible if item.source == "google_news"]
     other_items = [item for item in visible if item.source != "google_news"]
-    selected = archive_items[:12] + other_items[:8]
+    if keyword.kind == "github_repo":
+        github_items = [item for item in other_items if item.source == "github"]
+        news_items = [item for item in other_items if item.source != "github"]
+        selected = github_items[:8] + archive_items[:8] + news_items[:4]
+    else:
+        selected = archive_items[:12] + other_items[:8]
     selected.sort(key=_content_timestamp, reverse=True)
     return selected[:20]
 
@@ -402,7 +511,9 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         availability["github_history"] = "ready"
     if any(point.source == "newsnow" for point in points):
         availability["newsnow_snapshot"] = "ready"
-    if any(item.source == "google_news" for item in contents):
+    if any(point.source == "google_news" and point.metric == "matched_item_count" for point in points):
+        availability["google_news_archive"] = "ready"
+    elif any(item.source == "google_news" for item in contents):
         availability["google_news_archive"] = "ready"
 
     if job:
@@ -422,7 +533,7 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         and any(point.metric == "matched_item_count" and point.source_type == "timeline" for point in points)
     ):
         availability["newsnow_snapshot"] = "not_applicable"
-    if keyword.kind != "keyword" and availability["google_news_archive"] == "missing":
+    if keyword.kind not in {"keyword", "github_repo"} and availability["google_news_archive"] == "missing":
         availability["google_news_archive"] = "not_applicable"
 
     return availability
@@ -459,7 +570,7 @@ def search_keyword(
     parsed_content_source = parse_content_source(content_source)
     target = resolve_search_query(query, repo_lookup=resolve_github_repo_name)
     keyword = get_or_create_keyword(db, target)
-    _prefetch_keyword_history_inline(db, keyword)
+    _prefetch_content_history_inline(db, keyword)
     job = _maybe_schedule_backfill(
         db,
         background_tasks,
@@ -492,7 +603,7 @@ def search_keyword(
     )
     if parsed_content_source:
         content_stmt = content_stmt.where(ContentItem.source == parsed_content_source)
-    content_limit = 120 if keyword.kind == "keyword" and parsed_content_source is None else 20
+    content_limit = 120 if parsed_content_source is None else 20
     content_items = list(db.scalars(content_stmt.limit(content_limit)))
 
     filtered_points = _filter_period(trend_points, days)

@@ -35,6 +35,52 @@ def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _extract_full_name(item: object) -> str | None:
+    if not isinstance(item, dict):
+        return None
+
+    full_name = str(item.get("full_name") or "").strip().lower()
+    if full_name and "/" in full_name:
+        return full_name
+
+    name = str(item.get("name") or "").strip().lower()
+    owner = item.get("owner") if isinstance(item.get("owner"), dict) else {}
+    login = str(owner.get("login") or "").strip().lower()
+    if not name or not login:
+        return None
+    return f"{login}/{name}"
+
+
+def _resolve_direct_self_named_repo(
+    query: str,
+    *,
+    settings: Settings,
+    client: RequestJson,
+    headers: dict[str, str],
+) -> str | None:
+    normalized_query = query.strip().lower()
+    if not normalized_query:
+        return None
+
+    endpoint = f"{settings.github_api_base_url.rstrip('/')}/repos/{parse.quote(normalized_query)}/{parse.quote(normalized_query)}"
+    payload, _ = client(endpoint, headers)
+    if not isinstance(payload, dict):
+        return None
+
+    name = str(payload.get("name") or "").strip()
+    if name.casefold() != query.casefold():
+        return None
+
+    full_name = _extract_full_name(payload)
+    if not full_name or "/" not in full_name:
+        return None
+
+    owner_name, repo_name = full_name.split("/", 1)
+    if owner_name.casefold() != query.casefold() or repo_name.casefold() != query.casefold():
+        return None
+    return full_name
+
+
 def resolve_github_repo_name(
     query: str,
     *,
@@ -57,6 +103,10 @@ def resolve_github_repo_name(
         headers["Authorization"] = f"Bearer {settings.github_token}"
 
     client = request_json or _GithubSearchHttpClient(settings).request_json
+    direct_match = _resolve_direct_self_named_repo(query, settings=settings, client=client, headers=headers)
+    if direct_match:
+        return direct_match
+
     payload, _ = client(endpoint, headers)
     if not isinstance(payload, dict):
         return None
@@ -68,19 +118,12 @@ def resolve_github_repo_name(
     exact_matches: list[str] = []
     self_named_matches: list[str] = []
     for item in items:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
+        name = str(item.get("name") or "").strip() if isinstance(item, dict) else ""
         if name.casefold() != query.casefold():
             continue
 
-        full_name = str(item.get("full_name") or "").strip().lower()
-        if not full_name:
-            owner = item.get("owner") if isinstance(item.get("owner"), dict) else {}
-            login = str(owner.get("login") or "").strip().lower()
-            if login:
-                full_name = f"{login}/{name.lower()}"
-        if "/" not in full_name:
+        full_name = _extract_full_name(item)
+        if not full_name or "/" not in full_name:
             continue
         exact_matches.append(full_name)
         owner_name = full_name.split("/", 1)[0]
