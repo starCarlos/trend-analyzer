@@ -19,8 +19,9 @@ from app.schemas import (
     TrendPointPayload,
     TrendSeriesPayload,
 )
+from app.services.github_repo_resolution import resolve_github_repo_name
 from app.services.backfill import run_backfill_job
-from app.services.query_parser import SearchTarget, parse_search_query
+from app.services.query_parser import SearchTarget, resolve_search_query
 
 
 ALLOWED_PERIODS = {"7d": 7, "30d": 30, "90d": 90, "all": None}
@@ -326,7 +327,7 @@ def search_keyword(
 ) -> SearchResponsePayload:
     days = parse_period(period)
     parsed_content_source = parse_content_source(content_source)
-    target = parse_search_query(query)
+    target = resolve_search_query(query, repo_lookup=resolve_github_repo_name)
     keyword = get_or_create_keyword(db, target)
     job = _maybe_schedule_backfill(
         db,

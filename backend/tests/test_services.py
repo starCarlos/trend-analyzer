@@ -39,9 +39,10 @@ from app.services.provider_urls import (
     normalize_newsnow_source_id,
 )
 from app.services.provider_types import ContentItemInput, TrendPointInput
+from app.services.github_repo_resolution import resolve_github_repo_name
 from app.services.providers import ProviderHttpError, RealDataProvider
 from app.services.provider_verification import verify_provider_connectivity
-from app.services.query_parser import parse_search_query
+from app.services.query_parser import parse_search_query, resolve_search_query
 from app.services.scheduler import CollectionScheduler
 from app.services.search import get_backfill_status, search_keyword, set_track_state
 
@@ -563,6 +564,109 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(target.kind, "github_repo")
         self.assertEqual(target.normalized_query, "anthropic/claude-code")
         self.assertEqual(target.target_ref, "anthropic/claude-code")
+
+    def test_resolve_search_query_promotes_unique_bare_repo_name(self) -> None:
+        target = resolve_search_query(
+            "openclaw",
+            repo_lookup=lambda query: "smacker/openclaw" if query == "openclaw" else None,
+        )
+
+        self.assertEqual(target.kind, "github_repo")
+        self.assertEqual(target.normalized_query, "smacker/openclaw")
+        self.assertEqual(target.target_ref, "smacker/openclaw")
+        self.assertEqual(target.raw_query, "openclaw")
+
+    def test_resolve_search_query_keeps_keyword_when_repo_lookup_is_missing(self) -> None:
+        target = resolve_search_query("openclaw", repo_lookup=lambda _query: None)
+
+        self.assertEqual(target.kind, "keyword")
+        self.assertEqual(target.normalized_query, "openclaw")
+        self.assertIsNone(target.target_ref)
+
+    def test_github_repo_name_resolver_requires_unique_exact_match(self) -> None:
+        settings = Settings(
+            provider_mode="real",
+            github_api_base_url="https://api.github.com",
+            request_timeout_seconds=8.0,
+        )
+
+        def unique_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del url, headers
+            return (
+                {
+                    "items": [
+                        {
+                            "name": "OpenClaw",
+                            "full_name": "smacker/openclaw",
+                        },
+                        {
+                            "name": "openclaw-cli",
+                            "full_name": "someone/openclaw-cli",
+                        },
+                    ]
+                },
+                {},
+            )
+
+        def ambiguous_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del url, headers
+            return (
+                {
+                    "items": [
+                        {
+                            "name": "OpenClaw",
+                            "full_name": "smacker/openclaw",
+                        },
+                        {
+                            "name": "openclaw",
+                            "full_name": "another/openclaw",
+                        },
+                    ]
+                },
+                {},
+            )
+
+        self.assertEqual(
+            resolve_github_repo_name("openclaw", settings=settings, request_json=unique_request_json),
+            "smacker/openclaw",
+        )
+        self.assertIsNone(
+            resolve_github_repo_name("openclaw", settings=settings, request_json=ambiguous_request_json)
+        )
+
+    def test_github_repo_name_resolver_prefers_owner_repo_match_when_exact_name_is_ambiguous(self) -> None:
+        settings = Settings(
+            provider_mode="real",
+            github_api_base_url="https://api.github.com",
+            request_timeout_seconds=8.0,
+        )
+
+        def request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del url, headers
+            return (
+                {
+                    "items": [
+                        {
+                            "name": "openclaw",
+                            "full_name": "openclaw/openclaw",
+                        },
+                        {
+                            "name": "OpenClaw",
+                            "full_name": "pjasicek/OpenClaw",
+                        },
+                        {
+                            "name": "openclaw",
+                            "full_name": "coollabsio/openclaw",
+                        },
+                    ]
+                },
+                {},
+            )
+
+        self.assertEqual(
+            resolve_github_repo_name("openclaw", settings=settings, request_json=request_json),
+            "openclaw/openclaw",
+        )
 
     def test_newsnow_endpoint_builder_prefers_query_param_and_keeps_legacy_fallback(self) -> None:
         self.assertEqual(
