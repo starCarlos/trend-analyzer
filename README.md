@@ -203,5 +203,4 @@ backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mod
 
 ## Notes
 
-- The repository is not yet initialized as a git repository.
 - 当前推荐优先级是：先直接运行 Python 后端。
