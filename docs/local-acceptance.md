@@ -78,7 +78,7 @@ backend/.venv/bin/python scripts/local_acceptance.py \
 - `--require-running`
   - 要求后端必须已在运行，不允许脚本自动启动
 - `--base-url`
-  - 指定验收目标地址，默认 `http://127.0.0.1:5060`
+  - 指定验收目标地址，默认 `http://127.0.0.1:5081`
 - `--backend-python`
   - 指定用于跑单测和启动后端的 Python
 - `--ui-python`

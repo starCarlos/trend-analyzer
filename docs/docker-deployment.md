@@ -23,8 +23,8 @@ docker compose up --build
 
 启动后访问：
 
-- 网页：`http://localhost:5060`
-- 后端健康检查：`http://localhost:5060/api/health`
+- 网页：`http://localhost:5081`
+- 后端健康检查：`http://localhost:5081/api/health`
 
 ## 4. 当前编排说明
 

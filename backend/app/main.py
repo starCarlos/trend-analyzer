@@ -61,8 +61,8 @@ allow_origins = list(
     dict.fromkeys(
         [
             settings.frontend_origin,
-            "http://127.0.0.1:5060",
-            "http://localhost:5060",
+            "http://127.0.0.1:5081",
+            "http://localhost:5081",
             "http://127.0.0.1:8000",
             "http://localhost:8000",
             "http://127.0.0.1:3000",

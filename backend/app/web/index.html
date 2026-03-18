@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/assets/styles.css?v=20260318-ui-refresh-2" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260318-ui-refresh-8" />
   </head>
   <body>
     <main class="page-shell">
@@ -144,6 +144,26 @@
       </section>
 
       <section class="secondary-grid" id="secondary-grid">
+        <section class="tracked-dashboard hidden" id="tracked-dashboard">
+          <article class="tracked-hero hero-card">
+            <div class="tracked-hero-copy">
+              <div class="tracked-hero-topline">
+                <span class="tracked-dashboard-kicker" data-i18n="tracked.dashboard_kicker">观察台</span>
+                <span class="tracked-dashboard-chip" data-i18n="tracked.dashboard_chip">长期回看</span>
+              </div>
+              <h1 class="tracked-hero-title" data-i18n="tracked.dashboard_title">追踪台</h1>
+              <p class="tracked-hero-deck" id="tracked-overview-text"></p>
+            </div>
+            <div class="tracked-overview-stats" id="tracked-overview-stats"></div>
+          </article>
+
+          <article class="panel tracked-side-panel">
+            <span class="starter-kicker" data-i18n="tracked.guide_kicker">怎么用</span>
+            <strong class="tracked-side-title" data-i18n="tracked.guide_title">把常看的对象留在这里</strong>
+            <p class="tracked-side-body" data-i18n="tracked.guide_body">列表只做回看和跳转，运维工具默认收起。排查采集或来源时，再往下展开高级区。</p>
+          </article>
+        </section>
+
         <section class="recent-panel hero-card hidden" id="recent-panel">
           <div class="panel-header recent-header">
             <div>
@@ -159,7 +179,7 @@
           <div class="panel-header recent-header">
             <div>
               <h2 class="panel-title recent-title" data-i18n="tracked.title">追踪列表</h2>
-              <p class="panel-subtitle" data-i18n="tracked.subtitle">FastAPI 直接提供的独立追踪页也复用这组数据。</p>
+              <p class="panel-subtitle" data-i18n="tracked.subtitle">点卡片直接回到趋势页；这里只保留你会反复打开的对象。</p>
             </div>
             <button class="button-ghost recent-clear" data-i18n="action.refresh" id="tracked-refresh-button" type="button">刷新</button>
           </div>
@@ -204,104 +224,123 @@
           </article>
         </div>
 
-        <section class="operations-grid hidden" id="operations-shell">
-        <section class="panel">
-          <div class="panel-header">
-            <div>
-              <h2 class="panel-title" data-i18n="scheduler.title">调度器控制</h2>
-              <p class="panel-subtitle" data-i18n="scheduler.subtitle">查看内置采集循环，并按需刷新状态快照。</p>
+        <section class="operations-grid ops-workbench hidden" id="operations-shell">
+        <div class="ops-column ops-column-left">
+          <section class="panel ops-panel ops-panel-scheduler">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" data-i18n="scheduler.title">调度器控制</h2>
+                <p class="panel-subtitle" data-i18n="scheduler.subtitle">查看内置采集循环，并按需刷新状态快照。</p>
+              </div>
+              <button class="button-ghost" data-i18n="action.refresh" id="operations-refresh-button" type="button">刷新</button>
             </div>
-            <button class="button-ghost" data-i18n="action.refresh" id="operations-refresh-button" type="button">刷新</button>
-          </div>
-          <div class="inline-error hidden" id="scheduler-error"></div>
-          <div class="ops-stats" id="scheduler-stats"></div>
-        </section>
+            <div class="inline-error hidden" id="scheduler-error"></div>
+            <div class="ops-stats" id="scheduler-stats"></div>
+          </section>
 
-        <section class="panel">
-          <div class="panel-header">
-            <div>
-              <h2 class="panel-title" data-i18n="provider.preflight_title">Provider 预检</h2>
-              <p class="panel-subtitle" data-i18n="provider.preflight_subtitle">切到 real 或 auto 之前，先检查本地配置。</p>
+          <section class="panel ops-panel ops-panel-collect">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" data-i18n="collect.title">手动采集</h2>
+                <p class="panel-subtitle" data-i18n="collect.subtitle">触发追踪刷新，或对指定 query 运行一次性采集。</p>
+              </div>
             </div>
-            <button class="button-ghost" data-i18n="provider.verify" id="provider-verify-button" type="button">验证真实源</button>
-          </div>
-          <div class="inline-error hidden" id="provider-error"></div>
-          <div class="provider-summary" id="provider-summary"></div>
-          <form class="collect-form provider-smoke-form" id="provider-smoke-form">
-            <input
-              class="search-input"
-              data-i18n-placeholder="provider.smoke_placeholder"
-              id="provider-smoke-query-input"
-              placeholder="Smoke 查询，例如 openai/openai-python"
-            />
-            <div class="collect-row">
-              <select class="period-select" id="provider-smoke-period-select">
-                <option data-i18n="period.7d" value="7d">7 天</option>
-                <option data-i18n="period.30d" value="30d" selected>30 天</option>
-                <option data-i18n="period.90d" value="90d">90 天</option>
-                <option data-i18n="period.all" value="all">全部</option>
-              </select>
-              <label class="toggle-row" for="provider-smoke-force-checkbox">
-                <input id="provider-smoke-force-checkbox" type="checkbox" />
-                <span data-i18n="provider.force_search">强制真实搜索</span>
-              </label>
-            </div>
-            <div class="collect-actions">
-              <button class="button-primary" data-i18n="provider.run_smoke" id="provider-smoke-button" type="submit">运行 smoke</button>
-            </div>
-          </form>
-          <div class="collect-feedback hidden" id="provider-verify-feedback"></div>
-          <div class="collect-feedback hidden" id="provider-smoke-feedback"></div>
-          <div class="provider-grid" id="provider-grid"></div>
-          <div class="provider-grid hidden" id="provider-smoke-grid"></div>
-        </section>
+            <div class="inline-error hidden" id="collect-error"></div>
+            <div class="collect-feedback hidden" id="collect-feedback"></div>
+            <form class="collect-form" id="collect-form">
+              <input
+                class="search-input"
+                data-i18n-placeholder="collect.query_placeholder"
+                id="collect-query-input"
+                placeholder="可选：指定 query 做一次性 collect"
+              />
+              <div class="collect-row">
+                <select class="period-select" id="collect-period-select">
+                  <option data-i18n="period.7d" value="7d">7 天</option>
+                  <option data-i18n="period.30d" value="30d" selected>30 天</option>
+                  <option data-i18n="period.90d" value="90d">90 天</option>
+                  <option data-i18n="period.all" value="all">全部</option>
+                </select>
+                <label class="toggle-row" for="collect-backfill-checkbox">
+                  <input id="collect-backfill-checkbox" type="checkbox" checked />
+                  <span data-i18n="collect.backfill_now">立即执行回填</span>
+                </label>
+              </div>
+              <div class="collect-actions">
+                <button class="button-primary" data-i18n="collect.tracked" id="collect-tracked-button" type="submit">采集追踪列表</button>
+                <button class="button-ghost" data-i18n="collect.query" id="collect-query-button" type="button">采集该查询</button>
+              </div>
+            </form>
+            <div class="collect-results" id="collect-results"></div>
+          </section>
+        </div>
 
-        <section class="panel">
-          <div class="panel-header">
-            <div>
-              <h2 class="panel-title" data-i18n="collect.title">手动采集</h2>
-              <p class="panel-subtitle" data-i18n="collect.subtitle">触发追踪刷新，或对指定 query 运行一次性采集。</p>
+        <div class="ops-column ops-column-right">
+          <section class="panel ops-panel ops-panel-provider">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" data-i18n="provider.preflight_title">Provider 预检</h2>
+                <p class="panel-subtitle" data-i18n="provider.preflight_subtitle">切到 real 或 auto 之前，先检查本地配置。</p>
+              </div>
+              <button class="button-ghost" data-i18n="provider.verify" id="provider-verify-button" type="button">验证真实源</button>
             </div>
-          </div>
-          <div class="inline-error hidden" id="collect-error"></div>
-          <div class="collect-feedback hidden" id="collect-feedback"></div>
-          <form class="collect-form" id="collect-form">
-            <input
-              class="search-input"
-              data-i18n-placeholder="collect.query_placeholder"
-              id="collect-query-input"
-              placeholder="可选：指定 query 做一次性 collect"
-            />
-            <div class="collect-row">
-              <select class="period-select" id="collect-period-select">
-                <option data-i18n="period.7d" value="7d">7 天</option>
-                <option data-i18n="period.30d" value="30d" selected>30 天</option>
-                <option data-i18n="period.90d" value="90d">90 天</option>
-                <option data-i18n="period.all" value="all">全部</option>
-              </select>
-              <label class="toggle-row" for="collect-backfill-checkbox">
-                <input id="collect-backfill-checkbox" type="checkbox" checked />
-                <span data-i18n="collect.backfill_now">立即执行回填</span>
-              </label>
-            </div>
-            <div class="collect-actions">
-              <button class="button-primary" data-i18n="collect.tracked" id="collect-tracked-button" type="submit">采集追踪列表</button>
-              <button class="button-ghost" data-i18n="collect.query" id="collect-query-button" type="button">采集该查询</button>
-            </div>
-          </form>
-          <div class="collect-results" id="collect-results"></div>
-        </section>
+            <div class="inline-error hidden" id="provider-error"></div>
+            <div class="provider-summary" id="provider-summary"></div>
+            <div class="collect-feedback hidden" id="provider-verify-feedback"></div>
+            <div class="provider-grid" id="provider-grid"></div>
+            <details class="provider-smoke-disclosure" id="provider-smoke-disclosure">
+              <summary class="provider-smoke-summary">
+                <div class="provider-smoke-copy">
+                  <span class="provider-smoke-kicker" data-i18n="provider.smoke_section_kicker">Smoke</span>
+                  <strong data-i18n="provider.smoke_section_title">按查询排查真实源</strong>
+                  <p data-i18n="provider.smoke_section_subtitle">只在要验证某个 query 走哪条 provider 时，再展开这一块。</p>
+                </div>
+                <span class="provider-smoke-toggle">
+                  <span class="smoke-toggle-closed" data-i18n="disclosure.open">展开</span>
+                  <span class="smoke-toggle-open" data-i18n="disclosure.close">收起</span>
+                </span>
+              </summary>
+              <div class="provider-smoke-panel">
+                <form class="collect-form provider-smoke-form" id="provider-smoke-form">
+                  <input
+                    class="search-input"
+                    data-i18n-placeholder="provider.smoke_placeholder"
+                    id="provider-smoke-query-input"
+                    placeholder="Smoke 查询，例如 openai/openai-python"
+                  />
+                  <div class="collect-row">
+                    <select class="period-select" id="provider-smoke-period-select">
+                      <option data-i18n="period.7d" value="7d">7 天</option>
+                      <option data-i18n="period.30d" value="30d" selected>30 天</option>
+                      <option data-i18n="period.90d" value="90d">90 天</option>
+                      <option data-i18n="period.all" value="all">全部</option>
+                    </select>
+                    <label class="toggle-row" for="provider-smoke-force-checkbox">
+                      <input id="provider-smoke-force-checkbox" type="checkbox" />
+                      <span data-i18n="provider.force_search">强制真实搜索</span>
+                    </label>
+                  </div>
+                  <div class="collect-actions">
+                    <button class="button-primary" data-i18n="provider.run_smoke" id="provider-smoke-button" type="submit">运行 smoke</button>
+                  </div>
+                </form>
+                <div class="collect-feedback hidden" id="provider-smoke-feedback"></div>
+                <div class="provider-grid hidden" id="provider-smoke-grid"></div>
+              </div>
+            </details>
+          </section>
 
-        <section class="panel ops-runs-panel">
-          <div class="panel-header">
-            <div>
-              <h2 class="panel-title" data-i18n="collect.runs_title">最近采集记录</h2>
-              <p class="panel-subtitle" data-i18n="collect.runs_subtitle">后端 scheduler 和 backfill worker 最近的写入尝试。</p>
+          <section class="panel ops-panel ops-panel-runs ops-runs-panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" data-i18n="collect.runs_title">最近采集记录</h2>
+                <p class="panel-subtitle" data-i18n="collect.runs_subtitle">后端 scheduler 和 backfill worker 最近的写入尝试。</p>
+              </div>
             </div>
-          </div>
-          <div class="inline-error hidden" id="runs-error"></div>
-          <div class="ops-runs" id="collect-runs"></div>
-        </section>
+            <div class="inline-error hidden" id="runs-error"></div>
+            <div class="ops-runs" id="collect-runs"></div>
+          </section>
+        </div>
         </section>
       </details>
 
@@ -376,6 +415,7 @@
                 <option data-i18n="content_source.all" value="all" selected>全部来源</option>
                 <option data-i18n="content_source.newsnow" value="newsnow">NewsNow</option>
                 <option data-i18n="content_source.google_news" value="google_news">Google News</option>
+                <option data-i18n="content_source.gdelt" value="gdelt">GDELT</option>
                 <option data-i18n="content_source.github" value="github">GitHub</option>
               </select>
             </div>
@@ -408,6 +448,6 @@
       </section>
     </main>
 
-    <script src="/assets/app.js?v=20260318-ui-refresh-2"></script>
+    <script src="/assets/app.js?v=20260318-ui-refresh-8"></script>
   </body>
 </html>

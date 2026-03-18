@@ -78,7 +78,7 @@ class AcceptanceScriptTestCase(unittest.TestCase):
             str(RECORD_ROOT_DIR / "backend" / ".venv" / "bin" / "python"),
             str(RECORD_ROOT_DIR / "scripts" / "local_acceptance.py"),
             "--base-url",
-            "http://127.0.0.1:5060",
+            "http://127.0.0.1:5081",
         ]
 
         rendered = command_markdown(command)
@@ -316,7 +316,7 @@ class AcceptanceScriptTestCase(unittest.TestCase):
 
     def test_build_result_payload_reports_execution_flags(self) -> None:
         args = SimpleNamespace(
-            base_url="http://127.0.0.1:5060",
+            base_url="http://127.0.0.1:5081",
             skip_tests=False,
             skip_ui=True,
         )
@@ -369,7 +369,7 @@ class AcceptanceScriptTestCase(unittest.TestCase):
 
     def test_build_local_acceptance_command_omits_skip_ui_only_when_needed(self) -> None:
         args = SimpleNamespace(
-            base_url="http://127.0.0.1:5060",
+            base_url="http://127.0.0.1:5081",
             backend_python="backend/.venv/bin/python",
             ui_python="backend/.venv/bin/python",
             startup_time_out=30.0,
@@ -394,14 +394,14 @@ class AcceptanceScriptTestCase(unittest.TestCase):
     def test_update_ui_failure_sections_writes_failure_remarks(self) -> None:
         updated = update_ui_failure_sections(
             self.read_template(),
-            base_url="http://127.0.0.1:5060",
+            base_url="http://127.0.0.1:5081",
             repo_query="anthropic/claude-code",
             keyword_query="mcp",
             period="30d",
             error_message="BrowserType.launch failed",
         )
 
-        self.assertIn("- 验证地址：http://127.0.0.1:5060/?q=anthropic%2Fclaude-code&period=30d", updated)
+        self.assertIn("- 验证地址：http://127.0.0.1:5081/?q=anthropic%2Fclaude-code&period=30d", updated)
         self.assertIn("- 是否可打开：`否`", updated)
         self.assertIn("- 备注：自动页面验收失败：BrowserType.launch failed", updated)
         self.assertIn("- 是否验证 scheduler：未自动验证", updated)
@@ -411,7 +411,7 @@ class AcceptanceScriptTestCase(unittest.TestCase):
             self.read_template(),
             {
                 "search_repo": {
-                    "url": "http://127.0.0.1:5060/?q=anthropic%2Fclaude-code&period=30d",
+                    "url": "http://127.0.0.1:5081/?q=anthropic%2Fclaude-code&period=30d",
                     "page_opened": True,
                     "saw_today_readout": True,
                     "saw_github_content": False,
@@ -421,7 +421,7 @@ class AcceptanceScriptTestCase(unittest.TestCase):
                     "remark": "自动页面验收使用 inprocess driver",
                 },
                 "keyword_search": {
-                    "url": "http://127.0.0.1:5060/?q=mcp&period=30d",
+                    "url": "http://127.0.0.1:5081/?q=mcp&period=30d",
                     "saw_newsnow_snapshot": True,
                     "saw_content_list": False,
                     "saw_accumulation_hint_or_curve": True,

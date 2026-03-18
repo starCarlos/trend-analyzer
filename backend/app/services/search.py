@@ -35,7 +35,8 @@ from app.services.query_parser import SearchTarget, resolve_search_query
 
 
 ALLOWED_PERIODS = {"7d": 7, "30d": 30, "90d": 90, "all": None}
-ALLOWED_CONTENT_SOURCES = {"all", "github", "newsnow", "google_news"}
+ALLOWED_CONTENT_SOURCES = {"all", "github", "newsnow", "google_news", "gdelt"}
+ARCHIVE_CONTENT_SOURCES = ("google_news", "gdelt")
 CONTENT_REFRESH_WINDOW = timedelta(minutes=30)
 
 
@@ -47,7 +48,7 @@ def parse_period(period: str) -> int | None:
 
 def parse_content_source(content_source: str) -> str | None:
     if content_source not in ALLOWED_CONTENT_SOURCES:
-        raise HTTPException(status_code=400, detail="content_source must be one of all, github, newsnow, google_news")
+        raise HTTPException(status_code=400, detail="content_source must be one of all, github, newsnow, google_news, gdelt")
     return None if content_source == "all" else content_source
 
 
@@ -153,12 +154,12 @@ def _has_keyword_history_content(db: Session, keyword_id: int) -> bool:
     )
 
 
-def _has_google_news_timeline(db: Session, keyword_id: int) -> bool:
+def _has_archive_timeline(db: Session, keyword_id: int, source: str) -> bool:
     return (
         db.scalar(
             select(TrendPoint.id).where(
                 TrendPoint.keyword_id == keyword_id,
-                TrendPoint.source == "google_news",
+                TrendPoint.source == source,
                 TrendPoint.metric == "matched_item_count",
                 TrendPoint.source_type == "timeline",
             )
@@ -167,7 +168,7 @@ def _has_google_news_timeline(db: Session, keyword_id: int) -> bool:
     )
 
 
-def _google_news_queries(keyword: Keyword) -> list[str]:
+def _archive_queries(keyword: Keyword) -> list[str]:
     queries: list[str] = []
     seen: set[str] = set()
 
@@ -196,13 +197,13 @@ def _google_news_queries(keyword: Keyword) -> list[str]:
     return queries
 
 
-def _derive_google_news_timeline_points(db: Session, keyword: Keyword) -> list[TrendPointInput]:
+def _derive_archive_timeline_points(db: Session, keyword: Keyword, source: str) -> list[TrendPointInput]:
     content_items = list(
         db.scalars(
             select(ContentItem)
             .where(
                 ContentItem.keyword_id == keyword.id,
-                ContentItem.source == "google_news",
+                ContentItem.source == source,
                 ContentItem.published_at.is_not(None),
             )
             .order_by(ContentItem.published_at.asc(), ContentItem.id.asc())
@@ -222,7 +223,7 @@ def _derive_google_news_timeline_points(db: Session, keyword: Keyword) -> list[T
     raw_json = json.dumps(
         {
             "query": keyword.normalized_query,
-            "derived_from": "google_news_archive",
+            "derived_from": f"{source}_archive",
             "content_item_count": len(content_items),
             "bucket_count": len(counts_by_day),
         }
@@ -230,7 +231,7 @@ def _derive_google_news_timeline_points(db: Session, keyword: Keyword) -> list[T
 
     return [
         TrendPointInput(
-            source="google_news",
+            source=source,
             metric="matched_item_count",
             source_type="timeline",
             bucket_granularity="day",
@@ -249,7 +250,10 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
     changed = False
     has_history = _has_keyword_history(db, keyword.id)
     has_history_content = _has_keyword_history_content(db, keyword.id)
-    has_google_news_timeline = _has_google_news_timeline(db, keyword.id)
+    has_archive_timelines = {
+        source: _has_archive_timeline(db, keyword.id, source)
+        for source in ARCHIVE_CONTENT_SOURCES
+    }
 
     if keyword.kind == "keyword" and has_history_content and not has_history:
         for point in _derive_keyword_history_points(db, keyword):
@@ -257,26 +261,31 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
         db.commit()
         return True
 
-    if not _has_fresh_content_items(db, keyword.id, "google_news"):
-        provider = get_data_provider()
-        archive_fetcher = getattr(provider, "fetch_google_news_archive", None)
-        if callable(archive_fetcher):
-            archive_items = []
-            for archive_query in _google_news_queries(keyword):
-                try:
-                    archive_items = archive_fetcher(archive_query)
-                except Exception:
-                    db.rollback()
-                    archive_items = []
-                    continue
-                if archive_items:
-                    break
+    provider = get_data_provider()
+    for source, fetcher_name in (("google_news", "fetch_google_news_archive"), ("gdelt", "fetch_gdelt_archive")):
+        if _has_fresh_content_items(db, keyword.id, source):
+            continue
+        archive_fetcher = getattr(provider, fetcher_name, None)
+        if not callable(archive_fetcher):
+            continue
+
+        archive_items = []
+        for archive_query in _archive_queries(keyword):
+            try:
+                archive_items = archive_fetcher(archive_query)
+            except Exception:
+                db.rollback()
+                archive_items = []
+                continue
             if archive_items:
-                for item in archive_items:
-                    _upsert_content_item(db, keyword.id, item)
-                db.flush()
-                changed = True
-                has_history_content = True
+                break
+
+        if archive_items:
+            for item in archive_items:
+                _upsert_content_item(db, keyword.id, item)
+            db.flush()
+            changed = True
+            has_history_content = True
 
     if has_history_content and (changed or not has_history):
         for point in _derive_keyword_history_points(db, keyword):
@@ -284,11 +293,12 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
         changed = True
 
     if keyword.kind == "github_repo":
-        google_news_timeline = _derive_google_news_timeline_points(db, keyword)
-        if google_news_timeline and (changed or not has_google_news_timeline):
-            for point in google_news_timeline:
-                _upsert_trend_point(db, keyword.id, point)
-            changed = True
+        for source in ARCHIVE_CONTENT_SOURCES:
+            archive_timeline = _derive_archive_timeline_points(db, keyword, source)
+            if archive_timeline and (changed or not has_archive_timelines[source]):
+                for point in archive_timeline:
+                    _upsert_trend_point(db, keyword.id, point)
+                changed = True
 
     if changed:
         db.commit()
@@ -330,8 +340,8 @@ def _select_visible_content_items(
     if keyword.kind not in {"keyword", "github_repo"}:
         return visible[:20]
 
-    archive_items = [item for item in visible if item.source == "google_news"]
-    other_items = [item for item in visible if item.source != "google_news"]
+    archive_items = [item for item in visible if item.source in ARCHIVE_CONTENT_SOURCES]
+    other_items = [item for item in visible if item.source not in ARCHIVE_CONTENT_SOURCES]
     if keyword.kind == "github_repo":
         github_items = [item for item in other_items if item.source == "github"]
         news_items = [item for item in other_items if item.source != "github"]
@@ -505,6 +515,7 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         "github_history": "missing",
         "newsnow_snapshot": "missing",
         "google_news_archive": "missing",
+        "gdelt_archive": "missing",
     }
 
     if any(point.source == "github" and point.metric == "star_delta" for point in points):
@@ -515,6 +526,10 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         availability["google_news_archive"] = "ready"
     elif any(item.source == "google_news" for item in contents):
         availability["google_news_archive"] = "ready"
+    if any(point.source == "gdelt" and point.metric == "matched_item_count" for point in points):
+        availability["gdelt_archive"] = "ready"
+    elif any(item.source == "gdelt" for item in contents):
+        availability["gdelt_archive"] = "ready"
 
     if job:
         for task in job.tasks:
@@ -535,6 +550,8 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         availability["newsnow_snapshot"] = "not_applicable"
     if keyword.kind not in {"keyword", "github_repo"} and availability["google_news_archive"] == "missing":
         availability["google_news_archive"] = "not_applicable"
+    if keyword.kind not in {"keyword", "github_repo"} and availability["gdelt_archive"] == "missing":
+        availability["gdelt_archive"] = "not_applicable"
 
     return availability
 

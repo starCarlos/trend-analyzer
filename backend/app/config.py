@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "TrendScope API"
     app_env: str = "development"
     database_url: str = "sqlite:///./trendscope.db"
-    frontend_origin: str = "http://127.0.0.1:5060"
+    frontend_origin: str = "http://127.0.0.1:5081"
     scheduler_enabled: bool = False
     scheduler_interval_seconds: int = 1800
     scheduler_initial_delay_seconds: int = 15
@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     google_news_enabled: bool = True
     google_news_history_days: int = 365
     google_news_max_items: int = 80
+    gdelt_enabled: bool = True
+    gdelt_history_days: int = 90
+    gdelt_max_items: int = 80
     request_timeout_seconds: float = 8.0
     http_proxy: str = ""
 

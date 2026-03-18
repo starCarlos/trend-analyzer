@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -539,6 +540,49 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(items[0].author, "51CTO")
         self.assertEqual(items[0].published_at, datetime.fromisoformat("2026-03-17T04:42:44+00:00").replace(tzinfo=None))
 
+    def test_real_provider_fetch_gdelt_archive_parses_and_filters_response(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                gdelt_enabled=True,
+                gdelt_history_days=90,
+                gdelt_max_items=10,
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        payload = json.dumps(
+            {
+                "articles": [
+                    {
+                        "url": "https://example.com/openclaw-launch",
+                        "title": "OpenClaw launches browser agent mode",
+                        "seendate": "20260317T044244Z",
+                        "domain": "example.com",
+                        "language": "English",
+                        "sourcecountry": "United States",
+                    },
+                    {
+                        "url": "https://example.com/unrelated",
+                        "title": "Completely unrelated result",
+                        "seendate": "20260317T050000Z",
+                        "domain": "example.com",
+                        "language": "English",
+                        "sourcecountry": "United States",
+                    },
+                ]
+            }
+        )
+
+        with patch.object(provider, "_request_text", return_value=payload):
+            items = provider.fetch_gdelt_archive("openclaw")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source, "gdelt")
+        self.assertEqual(items[0].source_type, "archive")
+        self.assertEqual(items[0].author, "example.com")
+        self.assertEqual(items[0].published_at, datetime(2026, 3, 17, 4, 42, 44))
+
     def test_provider_smoke_skips_search_when_probe_fails(self) -> None:
         smoke = run_provider_smoke(
             query="anthropic/claude-code",
@@ -1007,6 +1051,72 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIsNone(payload.backfill_job)
         self.assertEqual(payload.availability["newsnow_snapshot"], "not_applicable")
         self.assertEqual(payload.availability["google_news_archive"], "ready")
+
+    def test_keyword_search_prefetches_gdelt_inline_on_first_lookup(self) -> None:
+        query = f"gdelt-inline-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        class InlineGdeltProvider:
+            name = "inline-gdelt"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                raise AssertionError(f"unexpected inline news snapshot request for {keyword_query}")
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                return []
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                self_query = keyword_query
+                return [
+                    ContentItemInput(
+                        source="gdelt",
+                        source_type="archive",
+                        external_key=f"{self_query}:gdelt:1",
+                        title=f"{self_query} gdelt item 1",
+                        url="https://example.com/gdelt/1",
+                        summary=None,
+                        author="provider",
+                        published_at=today - timedelta(days=2),
+                        meta_json="{}",
+                    ),
+                    ContentItemInput(
+                        source="gdelt",
+                        source_type="archive",
+                        external_key=f"{self_query}:gdelt:2",
+                        title=f"{self_query} gdelt item 2",
+                        url="https://example.com/gdelt/2",
+                        summary=None,
+                        author="provider",
+                        published_at=today - timedelta(days=1),
+                        meta_json="{}",
+                    ),
+                ]
+
+        with patch("app.services.search.get_data_provider", return_value=InlineGdeltProvider()):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        history_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in history_series.points], [1.0, 1.0])
+        self.assertTrue(any(item.source == "gdelt" for item in payload.content_items))
+        self.assertEqual(payload.availability["gdelt_archive"], "ready")
+        self.assertIsNone(payload.backfill_job)
 
     def test_repository_search_prefetches_google_news_inline_and_derives_timeline(self) -> None:
         repo_name = f"repo-{uuid4().hex[:8]}"

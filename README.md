@@ -37,9 +37,9 @@ RELOAD=1 uv run python run_server.py
 
 Open these URLs after startup:
 
-- Search page: `http://127.0.0.1:5060/`
-- Tracked page: `http://127.0.0.1:5060/tracked`
-- Health check: `http://127.0.0.1:5060/api/health`
+- Search page: `http://127.0.0.1:5081/`
+- Tracked page: `http://127.0.0.1:5081/tracked`
+- Health check: `http://127.0.0.1:5081/api/health`
 
 ### Alternative Start
 

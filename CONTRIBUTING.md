@@ -29,9 +29,9 @@ RELOAD=1 uv run python run_server.py
 
 Useful URLs:
 
-- `http://127.0.0.1:5060/`
-- `http://127.0.0.1:5060/tracked`
-- `http://127.0.0.1:5060/api/health`
+- `http://127.0.0.1:5081/`
+- `http://127.0.0.1:5081/tracked`
+- `http://127.0.0.1:5081/api/health`
 
 ## Development Rules
 

@@ -20,7 +20,7 @@ LOG_STREAM = sys.stdout
 TEST_ENV_OVERRIDES = {
     "PROVIDER_MODE": "mock",
 }
-DEFAULT_BASE_URL = os.environ.get("TRENDSCOPE_BASE_URL", "http://127.0.0.1:5060")
+DEFAULT_BASE_URL = os.environ.get("TRENDSCOPE_BASE_URL", "http://127.0.0.1:5081")
 
 
 def default_backend_python() -> str:

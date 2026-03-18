@@ -35,8 +35,10 @@ JUEJIN_TIME_RE = re.compile(r'<time[^>]+datetime="([^"]+)"')
 JUEJIN_SCHEMA_DATE_RE = re.compile(r'"datePublished":"([^"]+)"')
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 WHITESPACE_RE = re.compile(r"\s+")
+SEARCH_TOKEN_RE = re.compile(r"[a-z0-9]+")
 HAS_CJK_RE = re.compile(r"[\u3400-\u9FFF]")
 GOOGLE_NEWS_SOURCE_BLOCKLIST = {"x.com", "twitter.com"}
+GDELT_DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 
 class DataProvider(Protocol):
@@ -65,6 +67,10 @@ class MockDataProvider:
         return generate_newsnow_snapshot(query)
 
     def fetch_google_news_archive(self, query: str) -> list[ContentItemInput]:
+        del query
+        return []
+
+    def fetch_gdelt_archive(self, query: str) -> list[ContentItemInput]:
         del query
         return []
 
@@ -469,6 +475,136 @@ class RealDataProvider:
             return None
 
     @staticmethod
+    def _parse_gdelt_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y%m%dT%H%M%SZ")
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _gdelt_tokens(query: str) -> list[str]:
+        normalized = " ".join(query.split()).casefold()
+        if not normalized:
+            return []
+        if HAS_CJK_RE.search(normalized):
+            return [normalized]
+        tokens = []
+        for token in SEARCH_TOKEN_RE.findall(normalized):
+            if len(token) > 1 or token in {"ai", "vr", "ar", "mcp"}:
+                tokens.append(token)
+        return tokens or [normalized]
+
+    @classmethod
+    def _gdelt_matches_query(cls, query: str, *, title: str | None, url: str | None, domain: str | None) -> bool:
+        searchable = " ".join(part for part in (title, url, domain) if part).casefold()
+        normalized_query = " ".join(query.split()).casefold()
+        if not searchable or not normalized_query:
+            return False
+        if normalized_query in searchable:
+            return True
+        tokens = cls._gdelt_tokens(normalized_query)
+        return bool(tokens) and all(token in searchable for token in tokens)
+
+    def _build_gdelt_archive_url(self, query: str) -> str:
+        search_query = f'"{query.strip().replace("\"", " ")}"'
+        params = {
+            "query": search_query,
+            "mode": "ArtList",
+            "format": "json",
+            "sort": "datedesc",
+            "maxrecords": str(self.settings.gdelt_max_items),
+        }
+        if self.settings.gdelt_history_days > 0:
+            params["timespan"] = f"{self.settings.gdelt_history_days}d"
+        return f"{GDELT_DOC_API_URL}?{parse.urlencode(params)}"
+
+    def fetch_gdelt_archive(self, query: str) -> list[ContentItemInput]:
+        if not self.settings.gdelt_enabled:
+            return []
+
+        normalized_query = " ".join(query.split())
+        if not normalized_query:
+            return []
+
+        url = self._build_gdelt_archive_url(normalized_query)
+        raw_text = self._request_text(
+            url,
+            headers={
+                "User-Agent": "TrendScope/0.1",
+                "Accept": "application/json,text/plain,*/*",
+            },
+        )
+        stripped = raw_text.lstrip()
+        if stripped.startswith("Please limit requests"):
+            raise ProviderError(f"GDELT rate limited: {stripped[:160]}")
+
+        try:
+            payload = json.loads(raw_text)
+        except ValueError as exc:
+            raise ProviderError(f"Invalid GDELT payload from {url}: {exc}") from exc
+
+        if not isinstance(payload, dict):
+            raise ProviderError(f"Unexpected GDELT payload type from {url}: {type(payload).__name__}")
+
+        articles = payload.get("articles")
+        if not isinstance(articles, list):
+            raise ProviderError(f"Unexpected GDELT articles payload from {url}.")
+
+        items: list[ContentItemInput] = []
+        seen_urls: set[str] = set()
+        for index, article in enumerate(articles):
+            if not isinstance(article, dict):
+                continue
+
+            title = self._clean_html_text(str(article.get("title") or "").strip())
+            article_url = self._clean_html_text(str(article.get("url") or "").strip()) or None
+            domain = self._clean_html_text(str(article.get("domain") or "").strip()) or "GDELT"
+            if not title:
+                continue
+            if not self._gdelt_matches_query(normalized_query, title=title, url=article_url, domain=domain):
+                continue
+            if article_url and article_url in seen_urls:
+                continue
+
+            published_at = self._parse_gdelt_datetime(str(article.get("seendate") or "").strip())
+            if not published_at:
+                continue
+
+            if article_url:
+                seen_urls.add(article_url)
+
+            identity = article_url or "\0".join((normalized_query, title, domain, published_at.isoformat(), str(index)))
+            digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+
+            items.append(
+                ContentItemInput(
+                    source="gdelt",
+                    source_type="archive",
+                    external_key=f"{normalized_query}:{digest}",
+                    title=title,
+                    url=article_url,
+                    summary=None,
+                    author=domain,
+                    published_at=published_at,
+                    meta_json=json.dumps(
+                        {
+                            "provider": self.name,
+                            "query": normalized_query,
+                            "request_url": url,
+                            "domain": domain,
+                            "language": article.get("language"),
+                            "sourcecountry": article.get("sourcecountry"),
+                        }
+                    ),
+                )
+            )
+
+        items.sort(key=lambda item: item.published_at or datetime.min, reverse=True)
+        return items[: self.settings.gdelt_max_items]
+
+    @staticmethod
     def _strip_google_news_summary(title: str, source_name: str | None, description: str | None) -> str | None:
         cleaned = RealDataProvider._clean_html_text(description)
         if not cleaned:
@@ -697,6 +833,18 @@ class AutoDataProvider:
     def fetch_google_news_archive(self, query: str) -> list[ContentItemInput]:
         primary_fetcher = getattr(self.primary, "fetch_google_news_archive", None)
         fallback_fetcher = getattr(self.fallback, "fetch_google_news_archive", None)
+
+        if not callable(primary_fetcher):
+            return fallback_fetcher(query) if callable(fallback_fetcher) else []
+
+        try:
+            return primary_fetcher(query)
+        except ProviderError:
+            return fallback_fetcher(query) if callable(fallback_fetcher) else []
+
+    def fetch_gdelt_archive(self, query: str) -> list[ContentItemInput]:
+        primary_fetcher = getattr(self.primary, "fetch_gdelt_archive", None)
+        fallback_fetcher = getattr(self.fallback, "fetch_gdelt_archive", None)
 
         if not callable(primary_fetcher):
             return fallback_fetcher(query) if callable(fallback_fetcher) else []

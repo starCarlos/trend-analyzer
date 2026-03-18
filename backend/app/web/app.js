@@ -106,10 +106,30 @@
       },
       tracked: {
         title: "追踪列表",
-        subtitle: "FastAPI 直接提供的独立追踪页也复用这组数据。",
+        subtitle: "点卡片直接回到趋势页；这里只保留你会反复打开的对象。",
+        dashboard_kicker: "观察台",
+        dashboard_chip: "长期回看",
+        dashboard_title: "追踪台",
+        dashboard_active: "当前盯着 {count} 个对象，其中 {repos} 个仓库、{keywords} 个关键词。最近变动 {latest}。",
+        dashboard_empty: "还没有追踪对象。先去搜索页，把值得反复查看的仓库或关键词留下来。",
+        guide_kicker: "怎么用",
+        guide_title: "把常看的对象留在这里",
+        guide_body: "列表只做回看和跳转，运维工具默认收起。排查采集或来源时，再往下展开高级区。",
+        stat_total: "正在追踪",
+        stat_total_detail: "观察列表中的对象总数",
+        stat_repo: "仓库类",
+        stat_repo_detail: "按 GitHub 仓库路径回看",
+        stat_keyword: "关键词类",
+        stat_keyword_detail: "按普通关键词回看",
+        stat_scheduler: "调度器",
+        stat_scheduler_detail: "后台轮询的当前状态",
         empty: "还没有追踪词。先搜索，再把结果加入观察列表。",
         loading: "正在从本地数据库读取追踪词。",
         updated: "更新于 {value}",
+        first_seen: "首次收录 {value}",
+        input: "原始输入 {value}",
+        target: "目标 {value}",
+        open: "查看趋势",
         saving: "保存中...",
         untrack: "取消追踪",
         update_error: "更新追踪词失败。",
@@ -188,10 +208,16 @@
         availability: "数据可用性",
         next_steps: "后续动作",
         guide: "指引",
+        details: "详情",
         no_endpoint: "无 endpoint",
+        issues_count: "{count} 个问题",
+        notes_count: "{count} 条说明",
         smoke_search_title: "Smoke 搜索",
         smoke_search_subtitle: "{query} · {period}",
         smoke_feedback: "搜索 {search_status}。探测模式 {probe_mode}。force_search {force_search}。",
+        smoke_section_kicker: "Smoke",
+        smoke_section_title: "按查询排查真实源",
+        smoke_section_subtitle: "只在要验证某个 query 走哪条 provider 时，再展开这一块。",
         normalized: "归一化 {value}",
         trend_series: "趋势序列 {count}",
         content_items: "内容条目 {count}",
@@ -241,6 +267,7 @@
         newsnow: "NewsNow",
         github: "GitHub",
         google_news: "Google News",
+        gdelt: "GDELT",
       },
       snapshot: {
         title: "今日快照",
@@ -291,7 +318,7 @@
         points: "{count} 个点位",
         date_separator: " - ",
       },
-      source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", keyword_history: "历史新闻" },
+      source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", gdelt: "GDELT", keyword_history: "历史新闻" },
       task_type: { history: "历史", content: "内容", snapshot: "快照" },
       source_type: {
         github_repo: "GitHub 仓库",
@@ -309,10 +336,12 @@
         github_content: "GitHub 内容",
         newsnow_snapshot: "NewsNow 快照",
         google_news_archive: "Google News 历史",
+        gdelt_archive: "GDELT 历史",
       },
       status_value: {
         success: "成功",
         failed: "失败",
+        missing: "待获取",
         partial: "部分成功",
         not_applicable: "不适用",
         pending: "等待中",
@@ -428,10 +457,30 @@
       },
       tracked: {
         title: "Tracked watchlist",
-        subtitle: "The FastAPI-served /tracked page reuses the same dataset.",
+        subtitle: "Open any card to jump back into the trend page. Keep only things worth revisiting here.",
+        dashboard_kicker: "Watch desk",
+        dashboard_chip: "Revisit later",
+        dashboard_title: "Tracked board",
+        dashboard_active: "Watching {count} items: {repos} repos and {keywords} keywords. Latest change {latest}.",
+        dashboard_empty: "Nothing is tracked yet. Go back to search and keep the repositories or keywords worth revisiting.",
+        guide_kicker: "Workflow",
+        guide_title: "Keep only repeat-look items here",
+        guide_body: "This page is for revisiting and jumping back into trends. Advanced operator tools stay collapsed until you need them.",
+        stat_total: "Tracked",
+        stat_total_detail: "Total items in the watchlist",
+        stat_repo: "Repos",
+        stat_repo_detail: "Revisit by GitHub repository path",
+        stat_keyword: "Keywords",
+        stat_keyword_detail: "Revisit by plain keyword",
+        stat_scheduler: "Scheduler",
+        stat_scheduler_detail: "Current background polling state",
         empty: "No tracked keyword yet. Search first, then promote the result into the watchlist.",
         loading: "Loading tracked keywords from the local database.",
         updated: "Updated {value}",
+        first_seen: "First seen {value}",
+        input: "Original input {value}",
+        target: "Target {value}",
+        open: "Open trend",
         saving: "Saving...",
         untrack: "Untrack",
         update_error: "Failed to update tracked keyword.",
@@ -510,10 +559,16 @@
         availability: "Availability",
         next_steps: "Next steps",
         guide: "Guide",
+        details: "Details",
         no_endpoint: "No endpoint",
+        issues_count: "{count} issue(s)",
+        notes_count: "{count} note(s)",
         smoke_search_title: "Smoke search",
         smoke_search_subtitle: "{query} · {period}",
         smoke_feedback: "Search {search_status}. Probe {probe_mode}. force_search {force_search}.",
+        smoke_section_kicker: "Smoke",
+        smoke_section_title: "Trace a query path",
+        smoke_section_subtitle: "Open this only when you need to inspect which provider a query is using.",
         normalized: "Normalized {value}",
         trend_series: "Trend series {count}",
         content_items: "Content items {count}",
@@ -563,6 +618,7 @@
         newsnow: "NewsNow",
         github: "GitHub",
         google_news: "Google News",
+        gdelt: "GDELT",
       },
       snapshot: {
         title: "Today's readout",
@@ -613,7 +669,7 @@
         points: "{count} points",
         date_separator: " - ",
       },
-      source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", keyword_history: "News history" },
+      source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", gdelt: "GDELT", keyword_history: "News history" },
       task_type: { history: "history", content: "content", snapshot: "snapshot" },
       source_type: {
         github_repo: "GitHub repo",
@@ -631,10 +687,12 @@
         github_content: "GitHub content",
         newsnow_snapshot: "NewsNow snapshot",
         google_news_archive: "Google News archive",
+        gdelt_archive: "GDELT archive",
       },
       status_value: {
         success: "success",
         failed: "failed",
+        missing: "pending data",
         partial: "partial",
         not_applicable: "not applicable",
         pending: "pending",
@@ -769,6 +827,9 @@
     recentPanel: document.getElementById("recent-panel"),
     recentSearches: document.getElementById("recent-searches"),
     recentClearButton: document.getElementById("recent-clear-button"),
+    trackedDashboard: document.getElementById("tracked-dashboard"),
+    trackedOverviewText: document.getElementById("tracked-overview-text"),
+    trackedOverviewStats: document.getElementById("tracked-overview-stats"),
     trackedPanel: document.getElementById("tracked-panel"),
     trackedList: document.getElementById("tracked-list"),
     trackedEmptyState: document.getElementById("tracked-empty-state"),
@@ -782,6 +843,7 @@
     providerError: document.getElementById("provider-error"),
     providerVerifyButton: document.getElementById("provider-verify-button"),
     providerVerifyFeedback: document.getElementById("provider-verify-feedback"),
+    providerSmokeDisclosure: document.getElementById("provider-smoke-disclosure"),
     providerSmokeForm: document.getElementById("provider-smoke-form"),
     providerSmokeQueryInput: document.getElementById("provider-smoke-query-input"),
     providerSmokePeriodSelect: document.getElementById("provider-smoke-period-select"),
@@ -874,7 +936,7 @@
 
   function setUrlState() {
     const params = new URLSearchParams();
-    if (state.query) {
+    if (state.view === "search" && state.query) {
       params.set("q", state.query);
       params.set("period", state.period);
       if (state.contentSource !== "all") {
@@ -887,6 +949,11 @@
 
   function navigateToView(view) {
     state.view = view;
+    if (view !== "search") {
+      stopPolling();
+    } else if (state.result) {
+      schedulePolling();
+    }
     setUrlState();
     render();
   }
@@ -1123,28 +1190,55 @@
     return trimMessage(normalized, 220);
   }
 
-  function renderProviderCard(check) {
-    const issuesMarkup = check.issues.length
-      ? `
-          <div class="provider-issues">
-            <strong>${t("provider.issues")}</strong>
-            <ul class="provider-list">
-              ${check.issues.map((item) => `<li>${item}</li>`).join("")}
-            </ul>
-          </div>
-        `
-      : "";
-    const notesMarkup = check.notes.length
-      ? `
-          <div class="provider-notes">
-            <strong>${t("provider.notes")}</strong>
-            <ul class="provider-list">
-              ${check.notes.map((item) => `<li>${item}</li>`).join("")}
-            </ul>
-          </div>
-        `
-      : "";
+  function renderProviderDetails(issues, notes) {
+    if (!issues.length && !notes.length) {
+      return "";
+    }
 
+    const summaryParts = [];
+    if (issues.length) {
+      summaryParts.push(t("provider.issues_count", { count: issues.length }));
+    }
+    if (notes.length) {
+      summaryParts.push(t("provider.notes_count", { count: notes.length }));
+    }
+
+    const sections = [];
+    if (issues.length) {
+      sections.push(`
+        <div class="provider-detail-group">
+          <strong>${t("provider.issues")}</strong>
+          <ul class="provider-list">
+            ${issues.map((item) => `<li>${item}</li>`).join("")}
+          </ul>
+        </div>
+      `);
+    }
+    if (notes.length) {
+      sections.push(`
+        <div class="provider-detail-group">
+          <strong>${t("provider.notes")}</strong>
+          <ul class="provider-list">
+            ${notes.map((item) => `<li>${item}</li>`).join("")}
+          </ul>
+        </div>
+      `);
+    }
+
+    return `
+      <details class="provider-details">
+        <summary class="provider-details-summary">
+          <span class="provider-details-label">${t("provider.details")}</span>
+          <span class="provider-details-meta">${summaryParts.join(" · ")}</span>
+        </summary>
+        <div class="provider-details-body">
+          ${sections.join("")}
+        </div>
+      </details>
+    `;
+  }
+
+  function renderProviderCard(check) {
     return `
       <article class="provider-card">
         <header>
@@ -1158,8 +1252,7 @@
           <span>${t("provider.mode")} ${check.mode}</span>
           <span>${t("provider.real_configured")} ${formatBooleanLabel(check.can_use_real_provider)}</span>
         </div>
-        ${issuesMarkup}
-        ${notesMarkup}
+        ${renderProviderDetails(check.issues, check.notes)}
       </article>
     `;
   }
@@ -1383,7 +1476,7 @@
           counts.total += 1;
           if (["ready", "success", "active"].includes(value)) {
             counts.ready += 1;
-          } else if (["pending", "running", "partial", "warning"].includes(value)) {
+          } else if (["pending", "running", "partial", "warning", "missing"].includes(value)) {
             counts.waiting += 1;
           } else {
             counts.failed += 1;
@@ -1612,8 +1705,63 @@
     elements.resultSummary.classList.remove("hidden");
   }
 
+  function renderTrackedOverview() {
+    const shouldShowTrackedDashboard = state.view === "tracked";
+    elements.trackedDashboard.classList.toggle("hidden", !shouldShowTrackedDashboard);
+    if (!shouldShowTrackedDashboard) {
+      elements.trackedOverviewText.textContent = "";
+      elements.trackedOverviewStats.innerHTML = "";
+      return;
+    }
+
+    const trackedCount = state.trackedKeywords.length;
+    const repoCount = state.trackedKeywords.filter((item) => item.kind === "github_repo").length;
+    const keywordCount = trackedCount - repoCount;
+    const latestTracked = state.trackedKeywords.reduce(function (latest, item) {
+      if (!latest) {
+        return item;
+      }
+      return new Date(item.updated_at).getTime() > new Date(latest.updated_at).getTime() ? item : latest;
+    }, null);
+    const latestUpdated = latestTracked ? formatDate(latestTracked.updated_at) : t("generic.na");
+    const schedulerState = state.schedulerLoading
+      ? t("action.refreshing")
+      : state.schedulerStatus
+        ? formatStatusLabel(state.schedulerStatus.running ? "running" : "idle")
+        : t("generic.na");
+
+    elements.trackedOverviewText.textContent = trackedCount
+      ? t("tracked.dashboard_active", {
+          count: trackedCount,
+          repos: repoCount,
+          keywords: keywordCount,
+          latest: latestUpdated,
+        })
+      : t("tracked.dashboard_empty");
+
+    const stats = [
+      [t("tracked.stat_total"), trackedCount, t("tracked.stat_total_detail")],
+      [t("tracked.stat_repo"), repoCount, t("tracked.stat_repo_detail")],
+      [t("tracked.stat_keyword"), keywordCount, t("tracked.stat_keyword_detail")],
+      [t("tracked.stat_scheduler"), schedulerState, t("tracked.stat_scheduler_detail")],
+    ];
+
+    elements.trackedOverviewStats.innerHTML = stats
+      .map(
+        ([label, value, detail]) => `
+          <article class="tracked-overview-stat">
+            <span>${label}</span>
+            <strong>${value}</strong>
+            <p>${detail}</p>
+          </article>
+        `
+      )
+      .join("");
+  }
+
   function renderTrackedKeywords() {
     const shouldShowTrackedPanel = state.view === "tracked";
+    renderTrackedOverview();
     elements.trackedPanel.classList.toggle("hidden", !shouldShowTrackedPanel);
     if (!shouldShowTrackedPanel) {
       return;
@@ -1649,18 +1797,28 @@
     elements.trackedList.innerHTML = state.trackedKeywords
       .map((item, index) => {
         const busy = state.trackedBusyIds.includes(item.id);
+        const displayQuery = getTrackedQuery(item);
+        const rawDiffers = item.raw_query && item.raw_query !== displayQuery;
         return `
           <article class="tracked-item">
+            <div class="tracked-item-top">
+              <span class="tracked-kind-chip">${formatTrackedKind(item.kind)}</span>
+              <span class="tracked-item-state">${t("tracked.updated", { value: formatDate(item.updated_at) })}</span>
+            </div>
             <div class="tracked-item-copy">
-              <button class="tracked-jump" data-tracked-open-index="${index}" type="button">${getTrackedQuery(item)}</button>
+              <button class="tracked-jump" data-tracked-open-index="${index}" type="button">${displayQuery}</button>
+              ${rawDiffers ? `<p class="tracked-item-subtitle">${t("tracked.input", { value: item.raw_query })}</p>` : ""}
               <div class="tracked-meta">
-                <span>${formatTrackedKind(item.kind)}</span>
-                <span>${t("tracked.updated", { value: formatDate(item.updated_at) })}</span>
+                ${item.target_ref ? `<span>${t("tracked.target", { value: item.target_ref })}</span>` : ""}
+                <span>${t("tracked.first_seen", { value: formatDate(item.first_seen_at) })}</span>
               </div>
             </div>
-            <button class="button-ghost" data-tracked-id="${item.id}" type="button" ${busy ? "disabled" : ""}>
-              ${busy ? t("tracked.saving") : t("tracked.untrack")}
-            </button>
+            <div class="tracked-item-actions">
+              <button class="button-primary tracked-open-button" data-tracked-open-index="${index}" type="button">${t("tracked.open")}</button>
+              <button class="button-ghost" data-tracked-id="${item.id}" type="button" ${busy ? "disabled" : ""}>
+                ${busy ? t("tracked.saving") : t("tracked.untrack")}
+              </button>
+            </div>
           </article>
         `;
       })
@@ -1679,12 +1837,12 @@
     const operationsLoading = state.schedulerLoading || state.providerLoading || state.collectRunsLoading;
     const operationsBusy = operationsLoading || state.collectBusy || state.providerVerifyBusy || state.providerSmokeBusy;
     const shouldOpenOperations =
-      operationsBusy ||
+      state.collectBusy ||
+      state.providerVerifyBusy ||
+      state.providerSmokeBusy ||
       Boolean(state.schedulerError) ||
       Boolean(state.providerError) ||
       Boolean(state.collectError) ||
-      Boolean(state.collectFeedback) ||
-      Boolean(state.providerVerifyFeedback) ||
       Boolean(state.providerSmokeResult);
     if (shouldOpenOperations) {
       elements.operationsDisclosure.open = true;
@@ -1774,6 +1932,9 @@
     elements.providerSmokeForceCheckbox.disabled = state.providerVerifyBusy || state.providerSmokeBusy;
     elements.providerSmokeButton.disabled = state.providerVerifyBusy || state.providerSmokeBusy;
     elements.providerSmokeButton.textContent = state.providerSmokeBusy ? t("provider.running_smoke") : t("provider.run_smoke");
+    if (state.providerSmokeBusy || state.providerSmokeResult) {
+      elements.providerSmokeDisclosure.open = true;
+    }
 
     if (state.providerVerifyFeedback) {
       elements.providerVerifyFeedback.innerHTML = `
@@ -2109,11 +2270,13 @@
     syncLocaleChrome();
     syncControls();
     document.body.dataset.view = state.view;
-    document.body.dataset.resultState = state.result ? "ready" : state.loading ? "loading" : "idle";
+    document.body.dataset.resultState =
+      state.view === "search" ? (state.result ? "ready" : state.loading ? "loading" : "idle") : "idle";
     renderNavigation();
     renderRecentSearches();
     renderTrackedKeywords();
     renderOperations();
+    const showSearchResult = state.view === "search";
     const showGuidance = state.view === "search" && !state.result && !state.loading;
     elements.searchForm.classList.toggle("hidden", state.view === "tracked");
     elements.starterGrid.classList.toggle("hidden", !showGuidance);
@@ -2130,7 +2293,7 @@
         ? t("tracked.untrack")
         : t("status.track");
 
-    if (state.error) {
+    if (showSearchResult && state.error) {
       elements.errorState.textContent = state.error;
       elements.errorState.classList.remove("hidden");
     } else {
@@ -2138,10 +2301,19 @@
       elements.errorState.classList.add("hidden");
     }
 
-    if (state.loading && !state.result) {
+    if (showSearchResult && state.loading && !state.result) {
       elements.loadingPanel.classList.remove("hidden");
     } else {
       elements.loadingPanel.classList.add("hidden");
+    }
+
+    if (!showSearchResult) {
+      elements.emptyState.classList.add("hidden");
+      elements.trendPanel.classList.add("hidden");
+      elements.resultSummary.classList.add("hidden");
+      elements.dashboard.classList.add("hidden");
+      elements.availabilityDisclosure.classList.add("hidden");
+      return;
     }
 
     if (!state.result && !state.loading) {
@@ -2639,7 +2811,7 @@
     render();
     loadTrackedKeywords();
     loadOperationsData();
-    if (state.query) {
+    if (state.view === "search" && state.query) {
       loadSearch();
     } else {
       stopPolling();
@@ -2653,7 +2825,7 @@
   render();
   loadTrackedKeywords();
   loadOperationsData();
-  if (state.query) {
+  if (state.view === "search" && state.query) {
     loadSearch();
   }
 })();

@@ -75,7 +75,7 @@ def _upsert_content_item(session, keyword_id: int, item) -> None:
     )
 
 
-KEYWORD_HISTORY_SOURCES = {"newsnow", "google_news"}
+KEYWORD_HISTORY_SOURCES = {"newsnow", "google_news", "gdelt"}
 
 
 def _derive_keyword_history_points(session, keyword: Keyword) -> list[TrendPointInput]:
