@@ -976,6 +976,7 @@ class ServiceTestCase(unittest.TestCase):
         self.assertTrue(any(item.source == "google_news" for item in payload.content_items))
         self.assertIsNone(payload.backfill_job)
         self.assertEqual(payload.availability["newsnow_snapshot"], "not_applicable")
+        self.assertEqual(payload.availability["google_news_archive"], "ready")
 
     def test_keyword_search_refreshes_google_news_even_when_history_already_exists(self) -> None:
         query = f"refresh-archive-{uuid4().hex[:8]}"

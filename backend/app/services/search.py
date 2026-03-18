@@ -391,16 +391,19 @@ def _filter_content(contents: list[ContentItem], days: int | None) -> list[Conte
     return [item for item in contents if not item.published_at or item.published_at >= threshold]
 
 
-def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendPoint]) -> dict[str, str]:
+def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendPoint], contents: list[ContentItem]) -> dict[str, str]:
     availability = {
         "github_history": "missing",
         "newsnow_snapshot": "missing",
+        "google_news_archive": "missing",
     }
 
     if any(point.source == "github" and point.metric == "star_delta" for point in points):
         availability["github_history"] = "ready"
     if any(point.source == "newsnow" for point in points):
         availability["newsnow_snapshot"] = "ready"
+    if any(item.source == "google_news" for item in contents):
+        availability["google_news_archive"] = "ready"
 
     if job:
         for task in job.tasks:
@@ -419,6 +422,8 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         and any(point.metric == "matched_item_count" and point.source_type == "timeline" for point in points)
     ):
         availability["newsnow_snapshot"] = "not_applicable"
+    if keyword.kind != "keyword" and availability["google_news_archive"] == "missing":
+        availability["google_news_archive"] = "not_applicable"
 
     return availability
 
@@ -499,7 +504,7 @@ def search_keyword(
     )
     series = _apply_trend_semantics(keyword, _build_series(filtered_points))
     snapshot = _build_snapshot(trend_points, snapshot_contents)
-    availability = _availability(keyword, job, trend_points)
+    availability = _availability(keyword, job, trend_points, snapshot_contents)
 
     period_start = filtered_points[0].bucket_start if filtered_points else None
     period_end = filtered_points[-1].bucket_start if filtered_points else None

@@ -269,6 +269,7 @@
         github_history: "GitHub 历史",
         github_content: "GitHub 内容",
         newsnow_snapshot: "NewsNow 快照",
+        google_news_archive: "Google News 历史",
       },
       status_value: {
         success: "成功",
@@ -551,6 +552,7 @@
         github_history: "GitHub history",
         github_content: "GitHub content",
         newsnow_snapshot: "NewsNow snapshot",
+        google_news_archive: "Google News archive",
       },
       status_value: {
         success: "success",
