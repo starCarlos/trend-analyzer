@@ -35,7 +35,7 @@
         searching: "搜索中...",
         failed: "搜索失败。",
         hint_repo: "GitHub URL 和 owner/repo 默认展开全历史；裸仓库名解析成仓库后也会自动切换。",
-        hint_keyword: "普通关键词默认先看 30 天；首包先给当前快照，后台再补带时间的历史新闻。",
+        hint_keyword: "普通关键词默认先看 30 天；第一次搜索就会现抓一轮历史新闻，再补当前快照。",
       },
       starter: {
         title: "从这三条路径开始",
@@ -48,7 +48,7 @@
         example_owner_repo_body: "标准仓库查询路径，适合直接看 star 曲线、PR、release 和 issue。",
         example_keyword_badge: "普通关键词",
         example_keyword_title: "mcp",
-        example_keyword_body: "看当前快照、历史新闻线，以及最近抓到的内容条目。",
+        example_keyword_body: "第一次就直接现抓历史新闻线，再补当前快照和最近内容。",
         promise_title: "你会拿到什么",
         promise_subtitle: "先把结果承诺讲清楚，再让用户自己决定输入类型。",
         promise_repo_kicker: "仓库查询",
@@ -56,7 +56,7 @@
         promise_repo_body: "返回 star 日增曲线、相关 PR / issue / release，并叠加可用性状态。",
         promise_keyword_kicker: "关键词查询",
         promise_keyword_title: "当前快照 + 历史新闻线",
-        promise_keyword_body: "返回平台数、命中条目、最近内容，以及按发布时间补出来的历史热度线。",
+        promise_keyword_body: "第一次就现抓历史新闻，返回平台数、命中条目、最近内容，以及按发布时间补出来的热度线。",
         promise_trace_kicker: "结果状态",
         promise_trace_title: "不等回填完成，也不隐藏失败",
         promise_trace_body: "首包先给你当前可用结果，后续回填继续补，失败信息和来源状态都直接展示。",
@@ -223,6 +223,7 @@
         title: "数据可用性",
         subtitle: "前端把部分成功视为正常状态。",
         backfill_job: "回填任务",
+        newsnow_degraded: "NewsNow 上游暂时拥挤，当前快照已跳过；历史新闻线和历史新闻列表不受影响。",
         no_detail: "暂无更多细节。",
       },
       status: {
@@ -243,7 +244,7 @@
       },
       trend: {
         subtitle: "周期 {period}。当前可见 {count} 个来源。",
-        no_history: "还没有历史新闻点位。后台会继续补带发布时间的内容，再把线拉长。",
+        no_history: "还没有历史新闻点位。首次搜索会先现抓一轮历史新闻，后台再继续补。",
         one_point: "当前只有 1 个快照点位。若历史新闻还没补到，就会先从当前快照起步。",
         curve: "当前看到的是快照累计线，后续如果补到更多带时间的内容，会切成历史新闻线。",
         history_one_point: "已按带发布时间的内容回溯出历史，但目前只有 1 个点位。",
@@ -316,7 +317,7 @@
         searching: "Searching...",
         failed: "Search failed.",
         hint_repo: "GitHub URLs and owner/repo default to full history; bare repo names auto-switch after they resolve as repositories.",
-        hint_keyword: "Plain keywords default to 30 days. The first response returns the live snapshot first, then dated history gets filled in behind it.",
+        hint_keyword: "Plain keywords default to 30 days. The first search pulls a historical news pass immediately, then fills in the live snapshot.",
       },
       starter: {
         title: "Start with one of these three paths",
@@ -329,7 +330,7 @@
         example_owner_repo_body: "The standard repository path for star history, PRs, releases, and issues.",
         example_keyword_badge: "Plain keyword",
         example_keyword_title: "mcp",
-        example_keyword_body: "See the live snapshot, historical news line, and the recent content items.",
+        example_keyword_body: "Pull a historical news line on the first search, then fill in the live snapshot and recent content.",
         promise_title: "What you get back",
         promise_subtitle: "Set the result contract first, then let the user choose the input type.",
         promise_repo_kicker: "Repository query",
@@ -337,7 +338,7 @@
         promise_repo_body: "Return star delta history, related PR / issue / release items, and explicit availability state.",
         promise_keyword_kicker: "Keyword query",
         promise_keyword_title: "Live snapshot + news history",
-        promise_keyword_body: "Return platform count, hit count, recent content, and a historical line backfilled from publish times.",
+        promise_keyword_body: "Pull historical news on first lookup, then return platform count, hit count, recent content, and a line backfilled from publish times.",
         promise_trace_kicker: "Result state",
         promise_trace_title: "No waiting for full backfill, no hidden failures",
         promise_trace_body: "The first response returns current data immediately, later backfill keeps filling in, and failure state stays visible.",
@@ -504,6 +505,7 @@
         title: "Availability",
         subtitle: "The UI treats partial success as normal.",
         backfill_job: "Backfill job",
+        newsnow_degraded: "NewsNow is temporarily overloaded, so the live snapshot was skipped. Historical news and the trend line are still available.",
         no_detail: "No additional detail provided.",
       },
       status: {
@@ -524,7 +526,7 @@
       },
       trend: {
         subtitle: "Period {period}. {count} visible source(s).",
-        no_history: "No historical news points yet. The backend will keep filling in dated content and extend the line.",
+        no_history: "No historical news points yet. The first lookup will try a live historical fetch, then background collection keeps extending it.",
         one_point: "Only one snapshot point is visible right now. If dated history is still missing, the curve starts from the live snapshot first.",
         curve: "The current curve is still the accumulated snapshot view. Once more dated content lands, it will switch over to the historical news line.",
         history_one_point: "A first historical point was derived from dated content, but only one point is available so far.",
@@ -1015,6 +1017,18 @@
     return translateToken("metric_label", value);
   }
 
+  function summarizeAvailabilityMessage(message) {
+    if (!message) {
+      return t("availability.no_detail");
+    }
+    const normalized = String(message);
+    const lowered = normalized.toLowerCase();
+    if (lowered.includes("newsnow source fetch failed") || lowered.includes("d1_error") || lowered.includes("newsnow")) {
+      return t("availability.newsnow_degraded");
+    }
+    return trimMessage(normalized, 220);
+  }
+
   function renderProviderCard(check) {
     const issuesMarkup = check.issues.length
       ? `
@@ -1494,7 +1508,7 @@
         value: state.result.backfill_job ? formatStatusLabel(state.result.backfill_job.status) : t("status_value.idle"),
         detail: state.result.backfill_job
           ? state.result.backfill_job.error_message
-            ? trimMessage(state.result.backfill_job.error_message, 180)
+            ? summarizeAvailabilityMessage(state.result.backfill_job.error_message)
             : t("result.status_backfill_detail", { count: state.result.backfill_job.tasks.length })
           : t("result.status_backfill_idle"),
         tone: state.result.backfill_job ? getToneFromStatus(state.result.backfill_job.status) : "neutral",
@@ -1960,7 +1974,7 @@
           taskDetails.push({
           label: t("availability.backfill_job"),
           status: formatStatusLabel(state.result.backfill_job.status),
-          message: state.result.backfill_job.error_message,
+          message: summarizeAvailabilityMessage(state.result.backfill_job.error_message),
         });
       }
       state.result.backfill_job.tasks.forEach((task) => {
@@ -1968,7 +1982,7 @@
           taskDetails.push({
             label: formatTaskLabel(task),
             status: formatStatusLabel(task.status),
-            message: task.message || t("availability.no_detail"),
+            message: summarizeAvailabilityMessage(task.message || t("availability.no_detail")),
           });
         }
       });

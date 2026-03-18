@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from itertools import groupby
 
@@ -6,6 +7,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import BackfillJob, BackfillJobTask, ContentItem, Keyword, TrendPoint, utcnow
+from app.config import get_settings
 from app.schemas import (
     BackfillJobPayload,
     BackfillStatusPayload,
@@ -20,7 +22,14 @@ from app.schemas import (
     TrendSeriesPayload,
 )
 from app.services.github_repo_resolution import resolve_github_repo_name
-from app.services.backfill import run_backfill_job
+from app.services.backfill import (
+    KEYWORD_HISTORY_SOURCES,
+    _derive_keyword_history_points,
+    _upsert_content_item,
+    _upsert_trend_point,
+    run_backfill_job,
+)
+from app.services.providers import get_data_provider
 from app.services.query_parser import SearchTarget, resolve_search_query
 
 
@@ -89,6 +98,19 @@ def _has_github_history(db: Session, keyword_id: int) -> bool:
     )
 
 
+def _has_keyword_history(db: Session, keyword_id: int) -> bool:
+    return (
+        db.scalar(
+            select(TrendPoint.id).where(
+                TrendPoint.keyword_id == keyword_id,
+                TrendPoint.metric == "matched_item_count",
+                TrendPoint.source_type == "timeline",
+            )
+        )
+        is not None
+    )
+
+
 def _has_fresh_newsnow_snapshot(db: Session, keyword_id: int) -> bool:
     point = db.scalar(
         select(TrendPoint)
@@ -115,6 +137,100 @@ def _has_fresh_content_items(db: Session, keyword_id: int, source: str) -> bool:
     if not item:
         return False
     return item.fetched_at >= utcnow() - CONTENT_REFRESH_WINDOW
+
+
+def _has_keyword_history_content(db: Session, keyword_id: int) -> bool:
+    return (
+        db.scalar(
+            select(ContentItem.id).where(
+                ContentItem.keyword_id == keyword_id,
+                ContentItem.source.in_(tuple(sorted(KEYWORD_HISTORY_SOURCES))),
+                ContentItem.published_at.is_not(None),
+            )
+        )
+        is not None
+    )
+
+
+def _prefetch_keyword_history_inline(db: Session, keyword: Keyword) -> bool:
+    if keyword.kind != "keyword":
+        return False
+
+    changed = False
+    has_history = _has_keyword_history(db, keyword.id)
+    has_history_content = _has_keyword_history_content(db, keyword.id)
+
+    if has_history_content and not has_history:
+        for point in _derive_keyword_history_points(db, keyword):
+            _upsert_trend_point(db, keyword.id, point)
+        db.commit()
+        return True
+
+    if not _has_fresh_content_items(db, keyword.id, "google_news"):
+        provider = get_data_provider()
+        archive_fetcher = getattr(provider, "fetch_google_news_archive", None)
+        if callable(archive_fetcher):
+            try:
+                archive_items = archive_fetcher(keyword.normalized_query)
+            except Exception:
+                db.rollback()
+                archive_items = []
+            if archive_items:
+                for item in archive_items:
+                    _upsert_content_item(db, keyword.id, item)
+                db.flush()
+                changed = True
+                has_history_content = True
+
+    if has_history_content and (changed or not has_history):
+        for point in _derive_keyword_history_points(db, keyword):
+            _upsert_trend_point(db, keyword.id, point)
+        db.commit()
+        return True
+
+    if changed:
+        db.commit()
+        return True
+
+    return False
+
+
+def _content_timestamp(item: ContentItem):
+    return item.published_at or item.fetched_at
+
+
+def _is_synthetic_json(raw_json: str | None) -> bool:
+    if not raw_json:
+        return False
+    try:
+        payload = json.loads(raw_json)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(payload, dict) and payload.get("synthetic") is True
+
+
+def _filter_visible_contents(contents: list[ContentItem]) -> list[ContentItem]:
+    if get_settings().provider_mode == "mock":
+        return contents
+    return [item for item in contents if not _is_synthetic_json(item.meta_json)]
+
+
+def _select_visible_content_items(
+    keyword: Keyword,
+    contents: list[ContentItem],
+    *,
+    days: int | None,
+    parsed_content_source: str | None,
+) -> list[ContentItem]:
+    visible = _filter_content(_filter_visible_contents(contents), days)
+    if keyword.kind != "keyword" or parsed_content_source:
+        return visible[:20]
+
+    archive_items = [item for item in visible if item.source == "google_news"]
+    other_items = [item for item in visible if item.source != "google_news"]
+    selected = archive_items[:12] + other_items[:8]
+    selected.sort(key=_content_timestamp, reverse=True)
+    return selected[:20]
 
 
 def _create_job(
@@ -160,13 +276,15 @@ def _maybe_schedule_backfill(
     if active_job:
         return active_job
 
-    latest_job = _latest_job(db, keyword.id)
-    if latest_job and latest_job.status in {"failed", "partial"} and not retry_failed:
-        return latest_job
-
     need_github_history = keyword.kind == "github_repo" and not _has_github_history(db, keyword.id)
     need_github_content = keyword.kind == "github_repo" and not _has_fresh_content_items(db, keyword.id, "github")
-    need_newsnow = not _has_fresh_newsnow_snapshot(db, keyword.id)
+    need_newsnow = keyword.kind == "github_repo" and not _has_fresh_newsnow_snapshot(db, keyword.id)
+
+    latest_job = _latest_job(db, keyword.id)
+    if latest_job and latest_job.status in {"failed", "partial"} and not retry_failed:
+        if need_github_history or need_github_content or need_newsnow:
+            return latest_job
+        return None
 
     if not need_github_history and not need_github_content and not need_newsnow:
         return latest_job
@@ -295,6 +413,12 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
 
     if keyword.kind != "github_repo" and availability["github_history"] == "missing":
         availability["github_history"] = "not_applicable"
+    if (
+        keyword.kind == "keyword"
+        and availability["newsnow_snapshot"] == "missing"
+        and any(point.metric == "matched_item_count" and point.source_type == "timeline" for point in points)
+    ):
+        availability["newsnow_snapshot"] = "not_applicable"
 
     return availability
 
@@ -330,6 +454,7 @@ def search_keyword(
     parsed_content_source = parse_content_source(content_source)
     target = resolve_search_query(query, repo_lookup=resolve_github_repo_name)
     keyword = get_or_create_keyword(db, target)
+    _prefetch_keyword_history_inline(db, keyword)
     job = _maybe_schedule_backfill(
         db,
         background_tasks,
@@ -362,14 +487,16 @@ def search_keyword(
     )
     if parsed_content_source:
         content_stmt = content_stmt.where(ContentItem.source == parsed_content_source)
-    content_items = list(
-        db.scalars(
-            content_stmt.limit(20)
-        )
-    )
+    content_limit = 120 if keyword.kind == "keyword" and parsed_content_source is None else 20
+    content_items = list(db.scalars(content_stmt.limit(content_limit)))
 
     filtered_points = _filter_period(trend_points, days)
-    filtered_contents = _filter_content(content_items, days)
+    filtered_contents = _select_visible_content_items(
+        keyword,
+        content_items,
+        days=days,
+        parsed_content_source=parsed_content_source,
+    )
     series = _apply_trend_semantics(keyword, _build_series(filtered_points))
     snapshot = _build_snapshot(trend_points, snapshot_contents)
     availability = _availability(keyword, job, trend_points)

@@ -16,7 +16,7 @@ os.environ.setdefault("APP_ENV", "test")
 from app.config import Settings
 from app.database import Base, SessionLocal, engine
 from app.main import health, index, provider_smoke, provider_status, provider_verify, tracked_page, web_dir
-from app.models import TrendPoint, utcnow
+from app.models import BackfillJob, BackfillJobTask, TrendPoint, utcnow
 from app.schemas import (
     ProviderCheckPayload,
     ProviderProbePayload,
@@ -778,7 +778,7 @@ class ServiceTestCase(unittest.TestCase):
         self.assertTrue(any(task.source == "github" and task.task_type == "content" for task in status.tasks))
 
     def test_search_reuses_failed_backfill_until_explicit_retry(self) -> None:
-        query = f"failed-{uuid4().hex[:8]}"
+        query = f"owner-{uuid4().hex[:8]}/repo-{uuid4().hex[:8]}"
         initial = search_keyword(
             db=self.db,
             background_tasks=BackgroundTasks(),
@@ -790,10 +790,10 @@ class ServiceTestCase(unittest.TestCase):
             name = "failing"
 
             def fetch_github_history(self, target_ref: str):
-                raise AssertionError(f"unexpected github history request for {target_ref}")
+                raise RuntimeError(f"probe blocked for {target_ref}")
 
             def fetch_github_content(self, target_ref: str):
-                raise AssertionError(f"unexpected github content request for {target_ref}")
+                raise RuntimeError(f"probe blocked for {target_ref}")
 
             def fetch_newsnow_snapshot(self, keyword_query: str):
                 raise RuntimeError(f"probe blocked for {keyword_query}")
@@ -814,20 +814,67 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIsNotNone(failed.backfill_job)
         self.assertEqual(failed.backfill_job.id, initial.backfill_job.id)
         self.assertEqual(failed.backfill_job.status, "failed")
-        self.assertEqual(failed.availability["newsnow_snapshot"], "failed")
+        self.assertEqual(failed.availability["github_history"], "failed")
         self.assertTrue(any("probe blocked" in (task.message or "") for task in failed.backfill_job.tasks))
 
+    def test_keyword_search_hides_stale_newsnow_failure_when_history_is_ready(self) -> None:
+        query = f"stale-failure-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        initial = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+        job = BackfillJob(keyword_id=initial.keyword.id, status="failed", error_message="probe blocked")
+        self.db.add(job)
+        self.db.flush()
+        self.db.add(
+            BackfillJobTask(
+                job_id=job.id,
+                source="newsnow",
+                task_type="snapshot",
+                status="failed",
+                message="probe blocked",
+            )
+        )
+        self.db.commit()
+
+        self.db.add(
+            TrendPoint(
+                keyword_id=initial.keyword.id,
+                source="keyword_history",
+                metric="matched_item_count",
+                source_type="timeline",
+                bucket_granularity="day",
+                bucket_start=today,
+                value=3.0,
+                raw_json="{}",
+            )
+        )
+        self.db.commit()
+
+        refreshed = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+
+        self.assertIsNone(refreshed.backfill_job)
+        self.assertEqual(refreshed.availability["newsnow_snapshot"], "not_applicable")
+
     def test_refresh_keyword_retries_failed_backfill_explicitly(self) -> None:
-        query = f"retry-{uuid4().hex[:8]}"
+        query = f"owner-{uuid4().hex[:8]}/repo-{uuid4().hex[:8]}"
 
         class FailingProvider:
             name = "failing"
 
             def fetch_github_history(self, target_ref: str):
-                raise AssertionError(f"unexpected github history request for {target_ref}")
+                raise RuntimeError(f"probe blocked for {target_ref}")
 
             def fetch_github_content(self, target_ref: str):
-                raise AssertionError(f"unexpected github content request for {target_ref}")
+                raise RuntimeError(f"probe blocked for {target_ref}")
 
             def fetch_newsnow_snapshot(self, keyword_query: str):
                 raise RuntimeError(f"probe blocked for {keyword_query}")
@@ -866,6 +913,144 @@ class ServiceTestCase(unittest.TestCase):
         self.assertTrue(newsnow_only.content_items)
         self.assertTrue(all(item.source == "github" for item in github_only.content_items))
         self.assertTrue(all(item.source == "newsnow" for item in newsnow_only.content_items))
+
+    def test_keyword_search_prefetches_history_inline_on_first_lookup(self) -> None:
+        query = f"inline-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        class InlineHistoryProvider:
+            name = "inline"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                raise AssertionError(f"unexpected inline news snapshot request for {keyword_query}")
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                self_query = keyword_query
+                return [
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key=f"{self_query}:archive:1",
+                        title=f"{self_query} archive item 1",
+                        url="https://example.com/archive/1",
+                        summary="archive-1",
+                        author="provider",
+                        published_at=today - timedelta(days=2),
+                        meta_json="{}",
+                    ),
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key=f"{self_query}:archive:2",
+                        title=f"{self_query} archive item 2",
+                        url="https://example.com/archive/2",
+                        summary="archive-2",
+                        author="provider",
+                        published_at=today - timedelta(days=1),
+                        meta_json="{}",
+                    ),
+                ]
+
+        with patch("app.services.search.get_data_provider", return_value=InlineHistoryProvider()):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        history_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in history_series.points], [1.0, 1.0])
+        self.assertTrue(any(item.source == "google_news" for item in payload.content_items))
+        self.assertIsNone(payload.backfill_job)
+        self.assertEqual(payload.availability["newsnow_snapshot"], "not_applicable")
+
+    def test_keyword_search_refreshes_google_news_even_when_history_already_exists(self) -> None:
+        query = f"refresh-archive-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        initial = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+        job = BackfillJob(keyword_id=initial.keyword.id, status="pending")
+        self.db.add(job)
+        self.db.flush()
+        self.db.add(
+            BackfillJobTask(
+                job_id=job.id,
+                source="newsnow",
+                task_type="snapshot",
+                status="pending",
+            )
+        )
+        self.db.commit()
+
+        self.db.add(
+            TrendPoint(
+                keyword_id=initial.keyword.id,
+                source="keyword_history",
+                metric="matched_item_count",
+                source_type="timeline",
+                bucket_granularity="day",
+                bucket_start=today - timedelta(days=1),
+                value=1.0,
+                raw_json="{}",
+            )
+        )
+        self.db.commit()
+
+        class ArchiveRefreshProvider:
+            name = "archive-refresh"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                raise AssertionError(f"unexpected news snapshot request for {keyword_query}")
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                return [
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key=f"{keyword_query}:archive:new",
+                        title=f"{keyword_query} fresh archive item",
+                        url="https://example.com/archive/new",
+                        summary="fresh-archive",
+                        author="provider",
+                        published_at=today - timedelta(days=3),
+                        meta_json="{}",
+                    )
+                ]
+
+        with patch("app.services.search.get_data_provider", return_value=ArchiveRefreshProvider()):
+            refreshed = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+                content_source="google_news",
+            )
+
+        self.assertTrue(refreshed.content_items)
+        self.assertTrue(all(item.source == "google_news" for item in refreshed.content_items))
 
     def test_keyword_trend_uses_cumulative_newsnow_curve(self) -> None:
         query = f"keyword-{uuid4().hex[:8]}"
@@ -913,6 +1098,18 @@ class ServiceTestCase(unittest.TestCase):
             query=query,
             period="all",
         )
+        job = BackfillJob(keyword_id=initial.keyword.id, status="pending")
+        self.db.add(job)
+        self.db.flush()
+        self.db.add(
+            BackfillJobTask(
+                job_id=job.id,
+                source="newsnow",
+                task_type="snapshot",
+                status="pending",
+            )
+        )
+        self.db.commit()
 
         today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -1013,7 +1210,7 @@ class ServiceTestCase(unittest.TestCase):
                 ]
 
         with patch("app.services.backfill.get_data_provider", return_value=TimelineProvider()):
-            run_backfill_job(initial.backfill_job.id)
+            run_backfill_job(job.id)
 
         self.db.close()
         self.db = SessionLocal()
@@ -1065,7 +1262,7 @@ class ServiceTestCase(unittest.TestCase):
         self.assertTrue(any(item.keyword.id == tracked.id for item in collected))
 
     def test_management_lists_keywords_and_collect_runs(self) -> None:
-        query = f"managed-{uuid4().hex[:8]}"
+        query = f"owner-{uuid4().hex[:8]}/repo-{uuid4().hex[:8]}"
         payload = refresh_keyword(query, run_backfill_now=True)
 
         keywords = list_keywords()
