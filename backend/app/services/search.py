@@ -1,0 +1,414 @@
+from datetime import timedelta
+from itertools import groupby
+
+from fastapi import BackgroundTasks, HTTPException
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session, selectinload
+
+from app.models import BackfillJob, BackfillJobTask, ContentItem, Keyword, TrendPoint, utcnow
+from app.schemas import (
+    BackfillJobPayload,
+    BackfillStatusPayload,
+    BackfillTaskPayload,
+    ContentItemPayload,
+    KeywordPayload,
+    SearchResponsePayload,
+    SnapshotPayload,
+    TrendPayload,
+    TrendPeriodPayload,
+    TrendPointPayload,
+    TrendSeriesPayload,
+)
+from app.services.backfill import run_backfill_job
+from app.services.query_parser import SearchTarget, parse_search_query
+
+
+ALLOWED_PERIODS = {"7d": 7, "30d": 30, "90d": 90, "all": None}
+ALLOWED_CONTENT_SOURCES = {"all", "github", "newsnow"}
+CONTENT_REFRESH_WINDOW = timedelta(minutes=30)
+
+
+def parse_period(period: str) -> int | None:
+    if period not in ALLOWED_PERIODS:
+        raise HTTPException(status_code=400, detail="period must be one of 7d, 30d, 90d, all")
+    return ALLOWED_PERIODS[period]
+
+
+def parse_content_source(content_source: str) -> str | None:
+    if content_source not in ALLOWED_CONTENT_SOURCES:
+        raise HTTPException(status_code=400, detail="content_source must be one of all, github, newsnow")
+    return None if content_source == "all" else content_source
+
+
+def get_or_create_keyword(db: Session, target: SearchTarget) -> Keyword:
+    keyword = db.scalar(
+        select(Keyword).where(
+            Keyword.normalized_query == target.normalized_query,
+            Keyword.kind == target.kind,
+        )
+    )
+    if keyword:
+        keyword.raw_query = target.raw_query
+        keyword.updated_at = utcnow()
+        db.commit()
+        db.refresh(keyword)
+        return keyword
+
+    keyword = Keyword(
+        raw_query=target.raw_query,
+        normalized_query=target.normalized_query,
+        kind=target.kind,
+        target_ref=target.target_ref,
+    )
+    db.add(keyword)
+    db.commit()
+    db.refresh(keyword)
+    return keyword
+
+
+def _latest_job(db: Session, keyword_id: int) -> BackfillJob | None:
+    return db.scalar(
+        select(BackfillJob)
+        .options(selectinload(BackfillJob.tasks))
+        .where(BackfillJob.keyword_id == keyword_id)
+        .order_by(desc(BackfillJob.requested_at))
+    )
+
+
+def _has_github_history(db: Session, keyword_id: int) -> bool:
+    return (
+        db.scalar(
+            select(TrendPoint.id).where(
+                TrendPoint.keyword_id == keyword_id,
+                TrendPoint.source == "github",
+                TrendPoint.metric == "star_delta",
+            )
+        )
+        is not None
+    )
+
+
+def _has_fresh_newsnow_snapshot(db: Session, keyword_id: int) -> bool:
+    point = db.scalar(
+        select(TrendPoint)
+        .where(
+            TrendPoint.keyword_id == keyword_id,
+            TrendPoint.source == "newsnow",
+        )
+        .order_by(desc(TrendPoint.collected_at))
+    )
+    if not point:
+        return False
+    return point.collected_at >= utcnow() - CONTENT_REFRESH_WINDOW
+
+
+def _has_fresh_content_items(db: Session, keyword_id: int, source: str) -> bool:
+    item = db.scalar(
+        select(ContentItem)
+        .where(
+            ContentItem.keyword_id == keyword_id,
+            ContentItem.source == source,
+        )
+        .order_by(desc(ContentItem.fetched_at))
+    )
+    if not item:
+        return False
+    return item.fetched_at >= utcnow() - CONTENT_REFRESH_WINDOW
+
+
+def _create_job(
+    db: Session,
+    keyword: Keyword,
+    *,
+    need_github_history: bool,
+    need_github_content: bool,
+    need_newsnow: bool,
+) -> BackfillJob:
+    job = BackfillJob(keyword_id=keyword.id, status="pending")
+    db.add(job)
+    db.flush()
+
+    if need_github_history:
+        db.add(BackfillJobTask(job_id=job.id, source="github", task_type="history", status="pending"))
+    if need_github_content:
+        db.add(BackfillJobTask(job_id=job.id, source="github", task_type="content", status="pending"))
+    if need_newsnow:
+        db.add(BackfillJobTask(job_id=job.id, source="newsnow", task_type="snapshot", status="pending"))
+
+    db.commit()
+    db.refresh(job)
+    return _latest_job(db, keyword.id) or job
+
+
+def _maybe_schedule_backfill(
+    db: Session,
+    background_tasks: BackgroundTasks,
+    keyword: Keyword,
+    *,
+    retry_failed: bool = False,
+) -> BackfillJob | None:
+    active_job = db.scalar(
+        select(BackfillJob)
+        .options(selectinload(BackfillJob.tasks))
+        .where(
+            BackfillJob.keyword_id == keyword.id,
+            BackfillJob.status.in_(("pending", "running")),
+        )
+        .order_by(desc(BackfillJob.requested_at))
+    )
+    if active_job:
+        return active_job
+
+    latest_job = _latest_job(db, keyword.id)
+    if latest_job and latest_job.status in {"failed", "partial"} and not retry_failed:
+        return latest_job
+
+    need_github_history = keyword.kind == "github_repo" and not _has_github_history(db, keyword.id)
+    need_github_content = keyword.kind == "github_repo" and not _has_fresh_content_items(db, keyword.id, "github")
+    need_newsnow = not _has_fresh_newsnow_snapshot(db, keyword.id)
+
+    if not need_github_history and not need_github_content and not need_newsnow:
+        return latest_job
+
+    job = _create_job(
+        db,
+        keyword,
+        need_github_history=need_github_history,
+        need_github_content=need_github_content,
+        need_newsnow=need_newsnow,
+    )
+    background_tasks.add_task(run_backfill_job, job.id)
+    return job
+
+
+def _build_snapshot(points: list[TrendPoint], contents: list[ContentItem]) -> SnapshotPayload:
+    latest_by_metric: dict[tuple[str, str], TrendPoint] = {}
+    for point in sorted(points, key=lambda item: (item.bucket_start, item.collected_at), reverse=True):
+        latest_by_metric.setdefault((point.source, point.metric), point)
+
+    github_point = latest_by_metric.get(("github", "star_delta"))
+    news_hits = latest_by_metric.get(("newsnow", "hot_hit_count"))
+    news_platforms = latest_by_metric.get(("newsnow", "platform_count"))
+    updated_candidates = [point.collected_at for point in latest_by_metric.values()]
+    updated_at = max(updated_candidates) if updated_candidates else None
+
+    return SnapshotPayload(
+        github_star_today=int(github_point.value) if github_point else None,
+        newsnow_platform_count=int(news_platforms.value) if news_platforms else None,
+        newsnow_item_count=int(news_hits.value) if news_hits else len(contents) or None,
+        updated_at=updated_at,
+    )
+
+
+def _build_series(points: list[TrendPoint]) -> list[TrendSeriesPayload]:
+    ordered = sorted(points, key=lambda item: (item.source, item.metric, item.source_type, item.bucket_start))
+    series_payloads: list[TrendSeriesPayload] = []
+
+    for key, grouped in groupby(ordered, key=lambda item: (item.source, item.metric, item.source_type)):
+        source, metric, source_type = key
+        group_points = [
+            TrendPointPayload(bucket_start=point.bucket_start, value=point.value) for point in grouped if metric != "platform_count"
+        ]
+        if not group_points:
+            continue
+        series_payloads.append(
+            TrendSeriesPayload(
+                source=source,
+                metric=metric,
+                source_type=source_type,
+                points=group_points,
+            )
+        )
+
+    return series_payloads
+
+
+def _apply_trend_semantics(keyword: Keyword, series_payloads: list[TrendSeriesPayload]) -> list[TrendSeriesPayload]:
+    if keyword.kind != "keyword":
+        return series_payloads
+
+    transformed: list[TrendSeriesPayload] = []
+    for series in series_payloads:
+        if series.source != "newsnow" or series.metric != "hot_hit_count":
+            transformed.append(series)
+            continue
+
+        running_total = 0.0
+        cumulative_points: list[TrendPointPayload] = []
+        for point in series.points:
+            running_total += point.value
+            cumulative_points.append(TrendPointPayload(bucket_start=point.bucket_start, value=running_total))
+
+        transformed.append(
+            TrendSeriesPayload(
+                source=series.source,
+                metric=series.metric,
+                source_type=series.source_type,
+                points=cumulative_points,
+            )
+        )
+
+    return transformed
+
+
+def _filter_period(points: list[TrendPoint], days: int | None) -> list[TrendPoint]:
+    if days is None:
+        return points
+    threshold = utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
+    return [point for point in points if point.bucket_start >= threshold]
+
+
+def _filter_content(contents: list[ContentItem], days: int | None) -> list[ContentItem]:
+    if days is None:
+        return contents
+    threshold = utcnow() - timedelta(days=days)
+    return [item for item in contents if not item.published_at or item.published_at >= threshold]
+
+
+def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendPoint]) -> dict[str, str]:
+    availability = {
+        "github_history": "missing",
+        "newsnow_snapshot": "missing",
+    }
+
+    if any(point.source == "github" and point.metric == "star_delta" for point in points):
+        availability["github_history"] = "ready"
+    if any(point.source == "newsnow" for point in points):
+        availability["newsnow_snapshot"] = "ready"
+
+    if job:
+        for task in job.tasks:
+            if task.source == "github" and task.task_type == "history":
+                availability["github_history"] = (
+                    "ready" if task.status == "success" else "not_applicable" if task.status == "skipped" else task.status
+                )
+            elif task.source == "newsnow":
+                availability["newsnow_snapshot"] = "ready" if task.status == "success" else task.status
+
+    if keyword.kind != "github_repo" and availability["github_history"] == "missing":
+        availability["github_history"] = "not_applicable"
+
+    return availability
+
+
+def _serialize_job(job: BackfillJob | None) -> BackfillJobPayload | None:
+    if not job:
+        return None
+    return BackfillJobPayload(
+        id=job.id,
+        status=job.status,
+        error_message=job.error_message,
+        tasks=[
+            BackfillTaskPayload(
+                source=task.source,
+                task_type=task.task_type,
+                status=task.status,
+                message=task.message,
+            )
+            for task in job.tasks
+        ],
+    )
+
+
+def search_keyword(
+    db: Session,
+    background_tasks: BackgroundTasks,
+    query: str,
+    period: str,
+    content_source: str = "all",
+    retry_failed: bool = False,
+) -> SearchResponsePayload:
+    days = parse_period(period)
+    parsed_content_source = parse_content_source(content_source)
+    target = parse_search_query(query)
+    keyword = get_or_create_keyword(db, target)
+    job = _maybe_schedule_backfill(
+        db,
+        background_tasks,
+        keyword,
+        retry_failed=retry_failed,
+    )
+
+    db.refresh(keyword)
+
+    trend_points = list(
+        db.scalars(
+            select(TrendPoint)
+            .where(TrendPoint.keyword_id == keyword.id)
+            .order_by(TrendPoint.bucket_start.asc())
+        )
+    )
+
+    snapshot_contents = list(
+        db.scalars(
+            select(ContentItem)
+            .where(ContentItem.keyword_id == keyword.id)
+            .order_by(desc(ContentItem.published_at), desc(ContentItem.fetched_at))
+            .limit(20)
+        )
+    )
+    content_stmt = (
+        select(ContentItem)
+        .where(ContentItem.keyword_id == keyword.id)
+        .order_by(desc(ContentItem.published_at), desc(ContentItem.fetched_at))
+    )
+    if parsed_content_source:
+        content_stmt = content_stmt.where(ContentItem.source == parsed_content_source)
+    content_items = list(
+        db.scalars(
+            content_stmt.limit(20)
+        )
+    )
+
+    filtered_points = _filter_period(trend_points, days)
+    filtered_contents = _filter_content(content_items, days)
+    series = _apply_trend_semantics(keyword, _build_series(filtered_points))
+    snapshot = _build_snapshot(trend_points, snapshot_contents)
+    availability = _availability(keyword, job, trend_points)
+
+    period_start = filtered_points[0].bucket_start if filtered_points else None
+    period_end = filtered_points[-1].bucket_start if filtered_points else None
+
+    return SearchResponsePayload(
+        keyword=KeywordPayload.model_validate(keyword),
+        availability=availability,
+        snapshot=snapshot,
+        trend=TrendPayload(
+            period=TrendPeriodPayload(start=period_start, end=period_end),
+            series=series,
+        ),
+        content_items=[ContentItemPayload.model_validate(item) for item in filtered_contents],
+        backfill_job=_serialize_job(job),
+    )
+
+
+def get_backfill_status(db: Session, keyword_id: int) -> BackfillStatusPayload:
+    job = _latest_job(db, keyword_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Backfill job not found.")
+
+    return BackfillStatusPayload(
+        job_id=job.id,
+        status=job.status,
+        tasks=[
+            BackfillTaskPayload(
+                source=task.source,
+                task_type=task.task_type,
+                status=task.status,
+                message=task.message,
+            )
+            for task in job.tasks
+        ],
+    )
+
+
+def set_track_state(db: Session, keyword_id: int, tracked: bool) -> KeywordPayload:
+    keyword = db.scalar(select(Keyword).where(Keyword.id == keyword_id))
+    if not keyword:
+        raise HTTPException(status_code=404, detail="Keyword not found.")
+
+    keyword.is_tracked = tracked
+    keyword.updated_at = utcnow()
+    db.commit()
+    db.refresh(keyword)
+    return KeywordPayload.model_validate(keyword)

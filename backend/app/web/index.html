@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrendScope</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <nav class="site-nav">
+        <a class="brand-mark" href="/">TrendScope</a>
+        <div class="site-nav-links">
+          <a class="nav-link" data-view-link="search" href="/">Search</a>
+          <a class="nav-link" data-view-link="tracked" href="/tracked">Tracked</a>
+        </div>
+      </nav>
+
+      <section class="hero">
+        <div class="hero-card">
+          <div class="hero-label">
+            <span>TrendScope</span>
+            <span>Python Runtime</span>
+          </div>
+          <h1>Heat maps lie. Timelines don&apos;t.</h1>
+          <p>
+            Search a GitHub repository or a plain keyword, return the first useful answer quickly, and let the rest of
+            the data backfill in public.
+          </p>
+        </div>
+        <aside class="hero-card hero-aside">
+          <h2>Current scope</h2>
+          <ul>
+            <li>GitHub history for repository queries</li>
+            <li>NewsNow snapshot for repositories and plain keywords</li>
+            <li>Track state, content source filters, and async backfill status</li>
+          </ul>
+        </aside>
+      </section>
+
+      <form class="search-bar hero-card" id="search-form">
+        <input class="search-input" id="query-input" placeholder="Try openai/openai-python or MCP" />
+        <select class="period-select" id="period-select">
+          <option value="7d">7 days</option>
+          <option value="30d" selected>30 days</option>
+          <option value="90d">90 days</option>
+          <option value="all">All</option>
+        </select>
+        <button class="button-primary" id="search-button" type="submit">Search</button>
+      </form>
+
+      <section class="secondary-grid">
+        <section class="recent-panel hero-card hidden" id="recent-panel">
+          <div class="panel-header recent-header">
+            <div>
+              <h2 class="panel-title recent-title">Recent searches</h2>
+              <p class="panel-subtitle">Stored locally in this browser, up to 10 entries.</p>
+            </div>
+            <button class="button-ghost recent-clear" id="recent-clear-button" type="button">Clear</button>
+          </div>
+          <div class="recent-searches" id="recent-searches"></div>
+        </section>
+
+        <section class="tracked-panel hero-card" id="tracked-panel">
+          <div class="panel-header recent-header">
+            <div>
+              <h2 class="panel-title recent-title">Tracked watchlist</h2>
+              <p class="panel-subtitle">FastAPI 直接提供的独立追踪页也复用这组数据。</p>
+            </div>
+            <button class="button-ghost recent-clear" id="tracked-refresh-button" type="button">Refresh</button>
+          </div>
+          <div class="inline-error hidden" id="tracked-error"></div>
+          <div class="tracked-list" id="tracked-list"></div>
+          <div class="empty-state hidden" id="tracked-empty-state">
+            No tracked keyword yet. Search first, then promote the result into the watchlist.
+          </div>
+        </section>
+      </section>
+
+      <section class="operations-grid hidden" id="operations-shell">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Scheduler control</h2>
+              <p class="panel-subtitle">Inspect the built-in collector loop and refresh its snapshot on demand.</p>
+            </div>
+            <button class="button-ghost" id="operations-refresh-button" type="button">Refresh</button>
+          </div>
+          <div class="inline-error hidden" id="scheduler-error"></div>
+          <div class="ops-stats" id="scheduler-stats"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Provider preflight</h2>
+              <p class="panel-subtitle">Local configuration check before you switch to real or auto provider mode.</p>
+            </div>
+            <button class="button-ghost" id="provider-verify-button" type="button">Verify real</button>
+          </div>
+          <div class="inline-error hidden" id="provider-error"></div>
+          <div class="provider-summary" id="provider-summary"></div>
+          <form class="collect-form provider-smoke-form" id="provider-smoke-form">
+            <input
+              class="search-input"
+              id="provider-smoke-query-input"
+              placeholder="Smoke query, e.g. openai/openai-python"
+            />
+            <div class="collect-row">
+              <select class="period-select" id="provider-smoke-period-select">
+                <option value="7d">7 days</option>
+                <option value="30d" selected>30 days</option>
+                <option value="90d">90 days</option>
+                <option value="all">All</option>
+              </select>
+              <label class="toggle-row" for="provider-smoke-force-checkbox">
+                <input id="provider-smoke-force-checkbox" type="checkbox" />
+                <span>Force real search</span>
+              </label>
+            </div>
+            <div class="collect-actions">
+              <button class="button-primary" id="provider-smoke-button" type="submit">Run smoke</button>
+            </div>
+          </form>
+          <div class="collect-feedback hidden" id="provider-verify-feedback"></div>
+          <div class="collect-feedback hidden" id="provider-smoke-feedback"></div>
+          <div class="provider-grid" id="provider-grid"></div>
+          <div class="provider-grid hidden" id="provider-smoke-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Manual collect</h2>
+              <p class="panel-subtitle">Trigger tracked refreshes or run a one-off collection for a specific query.</p>
+            </div>
+          </div>
+          <div class="inline-error hidden" id="collect-error"></div>
+          <div class="collect-feedback hidden" id="collect-feedback"></div>
+          <form class="collect-form" id="collect-form">
+            <input class="search-input" id="collect-query-input" placeholder="Optional query for one-off collect" />
+            <div class="collect-row">
+              <select class="period-select" id="collect-period-select">
+                <option value="7d">7 days</option>
+                <option value="30d" selected>30 days</option>
+                <option value="90d">90 days</option>
+                <option value="all">All</option>
+              </select>
+              <label class="toggle-row" for="collect-backfill-checkbox">
+                <input id="collect-backfill-checkbox" type="checkbox" checked />
+                <span>Run backfill now</span>
+              </label>
+            </div>
+            <div class="collect-actions">
+              <button class="button-primary" id="collect-tracked-button" type="submit">Collect tracked</button>
+              <button class="button-ghost" id="collect-query-button" type="button">Collect query</button>
+            </div>
+          </form>
+          <div class="collect-results" id="collect-results"></div>
+        </section>
+
+        <section class="panel ops-runs-panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Recent collect runs</h2>
+              <p class="panel-subtitle">Last write attempts recorded by the backend scheduler and backfill workers.</p>
+            </div>
+          </div>
+          <div class="inline-error hidden" id="runs-error"></div>
+          <div class="ops-runs" id="collect-runs"></div>
+        </section>
+      </section>
+
+      <div class="error-state hidden" id="error-state"></div>
+      <div class="empty-state" id="empty-state">
+        Start with a direct GitHub path for the strongest first-run result. Plain keywords work too, but they only
+        gain history after repeated collection.
+      </div>
+
+      <section class="panel hidden" id="loading-panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Loading search frame</h2>
+            <p class="panel-subtitle">The first response should land before history finishes backfilling.</p>
+          </div>
+        </div>
+        <div class="loading-grid">
+          <div class="loading-bar"></div>
+          <div class="loading-bar"></div>
+          <div class="loading-bar"></div>
+          <div class="loading-bar"></div>
+        </div>
+      </section>
+
+      <div class="status-ribbon hidden" id="status-ribbon"></div>
+
+      <section class="dashboard hidden" id="dashboard">
+        <div class="stack">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" id="trend-heading">Search one repository or keyword.</h2>
+                <p class="panel-subtitle" id="trend-subtitle"></p>
+                <p class="trend-note hidden" id="trend-note"></p>
+              </div>
+              <button class="button-ghost" id="track-button" type="button">Track</button>
+            </div>
+            <div class="series-legend hidden" id="series-legend"></div>
+            <div class="series-grid" id="series-grid"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Context stream</h2>
+                <p class="panel-subtitle">Recent items associated with the current query.</p>
+              </div>
+              <select class="period-select" id="content-source-select">
+                <option value="all" selected>All sources</option>
+                <option value="newsnow">NewsNow</option>
+                <option value="github">GitHub</option>
+              </select>
+            </div>
+            <div class="content-list" id="content-list"></div>
+          </section>
+        </div>
+
+        <div class="stack">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Today&apos;s readout</h2>
+                <p class="panel-subtitle">Simple source facts, no synthetic composite score.</p>
+              </div>
+            </div>
+            <div class="cards" id="snapshot-cards"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Availability</h2>
+                <p class="panel-subtitle">The UI treats partial success as normal.</p>
+              </div>
+            </div>
+            <div class="availability-list" id="availability-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

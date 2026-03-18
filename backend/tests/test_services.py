@@ -1,0 +1,766 @@
+import unittest
+from datetime import timedelta
+from unittest.mock import patch
+from uuid import uuid4
+
+from fastapi import BackgroundTasks
+
+from app.config import Settings
+from app.database import Base, SessionLocal, engine
+from app.main import health, index, provider_smoke, provider_status, provider_verify, tracked_page, web_dir
+from app.models import TrendPoint, utcnow
+from app.schemas import (
+    ProviderCheckPayload,
+    ProviderProbePayload,
+    ProviderSmokePayload,
+    ProviderSmokeRequest,
+    ProviderSmokeSearchPayload,
+    ProviderStatusPayload,
+    ProviderVerifyPayload,
+    ProviderVerifyRequest,
+)
+from app.services.backfill import run_backfill_job
+from app.services.collector import collect_tracked_keywords, ensure_tracked, list_tracked_keywords, refresh_keyword
+from app.services.management import list_collect_runs, list_keywords
+from app.services.provider_diagnostics import get_provider_status
+from app.services.provider_smoke import run_provider_smoke
+from app.services.provider_urls import (
+    build_newsnow_source_endpoint,
+    iter_newsnow_source_endpoints,
+    iter_newsnow_source_ids,
+    normalize_newsnow_source_id,
+)
+from app.services.providers import ProviderHttpError, RealDataProvider
+from app.services.provider_verification import verify_provider_connectivity
+from app.services.query_parser import parse_search_query
+from app.services.scheduler import CollectionScheduler
+from app.services.search import get_backfill_status, search_keyword, set_track_state
+
+
+class ServiceTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        Base.metadata.create_all(bind=engine)
+
+    def setUp(self) -> None:
+        self.db = SessionLocal()
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    def test_health_payload(self) -> None:
+        payload = health()
+        self.assertEqual(payload["status"], "ok")
+        self.assertIsInstance(payload["scheduler_enabled"], bool)
+
+    def test_web_entry_assets_exist(self) -> None:
+        self.assertTrue(str(index().path).endswith("index.html"))
+        self.assertTrue(str(tracked_page().path).endswith("index.html"))
+        self.assertTrue((web_dir / "index.html").exists())
+        self.assertTrue((web_dir / "app.js").exists())
+        self.assertTrue((web_dir / "styles.css").exists())
+
+    def test_web_ui_contains_recent_tracked_collect_and_provider_panels(self) -> None:
+        html = (web_dir / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="recent-panel"', html)
+        self.assertIn('id="tracked-panel"', html)
+        self.assertIn('id="operations-shell"', html)
+        self.assertIn('id="collect-form"', html)
+        self.assertIn('id="collect-runs"', html)
+        self.assertIn('id="provider-grid"', html)
+        self.assertIn('id="provider-verify-button"', html)
+        self.assertIn('id="provider-smoke-form"', html)
+        self.assertIn('id="provider-smoke-query-input"', html)
+        self.assertIn('id="provider-smoke-button"', html)
+        self.assertIn('id="provider-smoke-grid"', html)
+
+    def test_provider_status_reports_mock_mode(self) -> None:
+        payload = get_provider_status(
+            Settings(
+                provider_mode="mock",
+                github_api_base_url="",
+                newsnow_base_url="",
+                newsnow_source_ids="",
+            )
+        )
+
+        self.assertEqual(payload.resolved_provider, "mock")
+        self.assertEqual(payload.github.status, "mock_only")
+        self.assertEqual(payload.newsnow.status, "mock_only")
+        self.assertIn("mock", payload.summary)
+
+    def test_provider_status_route_returns_payload(self) -> None:
+        expected = ProviderStatusPayload(
+            requested_mode="mock",
+            resolved_provider="mock",
+            summary="mock summary",
+            github=ProviderCheckPayload(
+                source="github",
+                mode="mock",
+                preferred_provider="mock",
+                status="mock_only",
+                can_use_real_provider=False,
+            ),
+            newsnow=ProviderCheckPayload(
+                source="newsnow",
+                mode="mock",
+                preferred_provider="mock",
+                status="mock_only",
+                can_use_real_provider=False,
+            ),
+        )
+
+        with patch("app.main.get_provider_status", return_value=expected) as loader:
+            payload = provider_status()
+
+        loader.assert_called_once_with()
+        self.assertEqual(payload.summary, "mock summary")
+        self.assertEqual(payload.github.status, "mock_only")
+
+    def test_provider_verify_route_forwards_probe_mode(self) -> None:
+        expected = ProviderVerifyPayload(
+            probe_mode="real",
+            requested_mode="real",
+            effective_mode="real",
+            summary="verify summary",
+            github=ProviderProbePayload(
+                source="github",
+                attempted_provider="real",
+                status="success",
+                endpoint="https://api.github.com/rate_limit",
+                message="ok",
+            ),
+            newsnow=ProviderProbePayload(
+                source="newsnow",
+                attempted_provider="real",
+                status="success",
+                endpoint="https://newsnow.example.com/api/s?id=weibo-hot",
+                message="ok",
+            ),
+        )
+
+        with patch("app.main.verify_provider_connectivity", return_value=expected) as runner:
+            payload = provider_verify(ProviderVerifyRequest(probe_mode="real"))
+
+        runner.assert_called_once_with(probe_mode="real")
+        self.assertEqual(payload.summary, "verify summary")
+        self.assertEqual(payload.github.status, "success")
+
+    def test_provider_smoke_route_forwards_request_payload(self) -> None:
+        expected = ProviderSmokePayload(
+            query="anthropic/claude-code",
+            period="30d",
+            probe_mode="real",
+            force_search=True,
+            summary="smoke summary",
+            provider_status=ProviderStatusPayload(
+                requested_mode="real",
+                resolved_provider="real",
+                summary="status summary",
+                github=ProviderCheckPayload(
+                    source="github",
+                    mode="real",
+                    preferred_provider="real",
+                    status="ready",
+                    can_use_real_provider=True,
+                ),
+                newsnow=ProviderCheckPayload(
+                    source="newsnow",
+                    mode="real",
+                    preferred_provider="real",
+                    status="ready",
+                    can_use_real_provider=True,
+                ),
+            ),
+            provider_verify=ProviderVerifyPayload(
+                probe_mode="real",
+                requested_mode="real",
+                effective_mode="real",
+                summary="verify summary",
+                github=ProviderProbePayload(
+                    source="github",
+                    attempted_provider="real",
+                    status="success",
+                    endpoint="https://api.github.com/rate_limit",
+                    message="ok",
+                ),
+                newsnow=ProviderProbePayload(
+                    source="newsnow",
+                    attempted_provider="real",
+                    status="success",
+                    endpoint="https://newsnow.example.com/api/s?id=weibo-hot",
+                    message="ok",
+                ),
+            ),
+            search=ProviderSmokeSearchPayload(
+                query="anthropic/claude-code",
+                period="30d",
+                status="success",
+                message="端到端搜索执行成功。",
+                keyword_kind="github_repo",
+                normalized_query="anthropic/claude-code",
+                trend_series_count=2,
+                content_item_count=3,
+                availability={"github_history": "ready", "newsnow_snapshot": "ready"},
+                backfill_status="success",
+            ),
+            next_steps=["open tracked page"],
+        )
+
+        request_payload = ProviderSmokeRequest(
+            query="anthropic/claude-code",
+            period="30d",
+            probe_mode="real",
+            force_search=True,
+        )
+
+        with patch("app.main.run_provider_smoke", return_value=expected) as runner:
+            payload = provider_smoke(request_payload)
+
+        runner.assert_called_once_with(
+            query="anthropic/claude-code",
+            period="30d",
+            probe_mode="real",
+            force_search=True,
+        )
+        self.assertEqual(payload.summary, "smoke summary")
+        self.assertEqual(payload.search.status, "success")
+        self.assertEqual(payload.next_steps, ["open tracked page"])
+
+    def test_provider_status_reports_auto_fallback_for_misconfigured_source(self) -> None:
+        payload = get_provider_status(
+            Settings(
+                provider_mode="auto",
+                github_token="token",
+                github_api_base_url="https://api.github.com",
+                github_history_max_pages=10,
+                newsnow_base_url="",
+                newsnow_source_ids="",
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        self.assertEqual(payload.resolved_provider, "auto")
+        self.assertEqual(payload.github.preferred_provider, "real")
+        self.assertEqual(payload.github.status, "ready")
+        self.assertEqual(payload.newsnow.preferred_provider, "mock")
+        self.assertEqual(payload.newsnow.status, "fallback_only")
+
+    def test_provider_verify_reports_success_for_real_probe(self) -> None:
+        def fake_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            if url.endswith("/rate_limit"):
+                return ({"rate": {"remaining": 4999, "limit": 5000}}, {})
+            return ({"items": [{"title": "demo"}]}, {})
+
+        payload = verify_provider_connectivity(
+            settings=Settings(
+                provider_mode="real",
+                github_token="token",
+                github_api_base_url="https://api.github.com",
+                newsnow_base_url="https://newsnow.example.com",
+                newsnow_source_ids="weibo-hot",
+                request_timeout_seconds=8.0,
+            ),
+            probe_mode="real",
+            request_json=fake_request_json,
+        )
+
+        self.assertEqual(payload.github.status, "success")
+        self.assertEqual(payload.newsnow.status, "success")
+        self.assertIn("成功", payload.summary)
+        self.assertEqual(payload.newsnow.endpoint, "https://newsnow.example.com/api/s?id=weibo")
+
+    def test_provider_verify_newsnow_falls_back_to_legacy_endpoint(self) -> None:
+        def fake_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            if url.endswith("/rate_limit"):
+                return ({"rate": {"remaining": 4999, "limit": 5000}}, {})
+            if url.endswith("/api/s?id=weibo-hot"):
+                raise RuntimeError("HTTP 403")
+            if url.endswith("/api/s/weibo-hot"):
+                return ({"items": [{"title": "demo"}]}, {})
+            raise AssertionError(url)
+
+        payload = verify_provider_connectivity(
+            settings=Settings(
+                provider_mode="real",
+                github_token="token",
+                github_api_base_url="https://api.github.com",
+                newsnow_base_url="https://newsnow.example.com",
+                newsnow_source_ids="weibo-hot",
+                request_timeout_seconds=8.0,
+            ),
+            probe_mode="real",
+            request_json=fake_request_json,
+        )
+
+        self.assertEqual(payload.newsnow.status, "success")
+        self.assertEqual(payload.newsnow.endpoint, "https://newsnow.example.com/api/s/weibo-hot")
+
+    def test_provider_verify_newsnow_retries_transient_primary_endpoint(self) -> None:
+        attempts: dict[str, int] = {}
+
+        def fake_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del headers
+            if url.endswith("/rate_limit"):
+                return ({"rate": {"remaining": 4999, "limit": 5000}}, {})
+            attempts[url] = attempts.get(url, 0) + 1
+            if url.endswith("/api/s?id=weibo"):
+                if attempts[url] == 1:
+                    raise RuntimeError("HTTP 500: D1 DB is overloaded")
+                return ({"items": [{"title": "demo"}]}, {})
+            raise AssertionError(url)
+
+        payload = verify_provider_connectivity(
+            settings=Settings(
+                provider_mode="real",
+                github_token="token",
+                github_api_base_url="https://api.github.com",
+                newsnow_base_url="https://newsnow.example.com",
+                newsnow_source_ids="weibo",
+                request_timeout_seconds=8.0,
+            ),
+            probe_mode="real",
+            request_json=fake_request_json,
+        )
+
+        self.assertEqual(payload.newsnow.status, "success")
+        self.assertEqual(payload.newsnow.endpoint, "https://newsnow.example.com/api/s?id=weibo")
+        self.assertEqual(attempts["https://newsnow.example.com/api/s?id=weibo"], 2)
+
+    def test_provider_verify_skips_when_real_config_is_incomplete(self) -> None:
+        payload = verify_provider_connectivity(
+            settings=Settings(
+                provider_mode="real",
+                github_api_base_url="",
+                newsnow_base_url="",
+                newsnow_source_ids="",
+                request_timeout_seconds=8.0,
+            ),
+            probe_mode="real",
+            request_json=lambda _url, _headers: ({}, {}),
+        )
+
+        self.assertEqual(payload.github.status, "skipped")
+        self.assertEqual(payload.newsnow.status, "skipped")
+        self.assertIn("跳过", payload.github.message)
+
+    def test_real_provider_fetch_github_content_tolerates_missing_releases(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                github_api_base_url="https://api.github.com",
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        def fake_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del headers
+            if url.endswith("/releases?per_page=6"):
+                raise ProviderHttpError(404, url, '{"message":"Not Found"}')
+            if url.endswith("/issues?state=all&sort=updated&direction=desc&per_page=12"):
+                return (
+                    [
+                        {
+                            "id": 42,
+                            "number": 7,
+                            "title": "Fix startup flow",
+                            "html_url": "https://github.com/owner/repo/issues/7",
+                            "body": "Ensure the service starts cleanly.",
+                            "updated_at": "2026-03-18T00:00:00Z",
+                            "state": "open",
+                            "user": {"login": "octocat"},
+                        }
+                    ],
+                    {},
+                )
+            raise AssertionError(url)
+
+        with patch.object(provider, "_request_json", side_effect=fake_request_json):
+            items = provider.fetch_github_content("owner/repo")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].title, "Fix startup flow")
+        self.assertIn(":issue:", items[0].external_key)
+
+    def test_real_provider_fetch_newsnow_snapshot_retries_transient_errors(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                newsnow_base_url="https://newsnow.example.com",
+                newsnow_source_ids="weibo",
+                request_timeout_seconds=8.0,
+            )
+        )
+        attempts: dict[str, int] = {}
+
+        def fake_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del headers
+            attempts[url] = attempts.get(url, 0) + 1
+            if url.endswith("/api/s?id=weibo"):
+                if attempts[url] == 1:
+                    raise ProviderHttpError(500, url, '{"message":"D1 DB is overloaded"}')
+                return (
+                    {
+                        "items": [
+                            {
+                                "title": "mcp is trending",
+                                "url": "https://example.com/mcp",
+                                "time": "2026-03-18 12:00:00",
+                            }
+                        ]
+                    },
+                    {},
+                )
+            raise AssertionError(url)
+
+        with patch.object(provider, "_request_json", side_effect=fake_request_json):
+            trend_points, items = provider.fetch_newsnow_snapshot("mcp")
+
+        self.assertEqual(attempts["https://newsnow.example.com/api/s?id=weibo"], 2)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].title, "mcp is trending")
+        self.assertEqual(trend_points[0].metric, "hot_hit_count")
+        self.assertEqual(trend_points[0].value, 1.0)
+
+    def test_provider_smoke_skips_search_when_probe_fails(self) -> None:
+        smoke = run_provider_smoke(
+            query="anthropic/claude-code",
+            period="30d",
+            probe_mode="real",
+            provider_status_loader=lambda: get_provider_status(Settings(provider_mode="mock")),
+            provider_verify_runner=lambda **_: ProviderVerifyPayload(
+                probe_mode="real",
+                requested_mode="mock",
+                effective_mode="real",
+                summary="probe failed",
+                github=ProviderProbePayload(
+                    source="github",
+                    attempted_provider="real",
+                    status="failed",
+                    endpoint="https://api.github.com/rate_limit",
+                    message="failed",
+                ),
+                newsnow=ProviderProbePayload(
+                    source="newsnow",
+                    attempted_provider="real",
+                    status="success",
+                    endpoint="https://newsnow.example.com/api/s?id=weibo-hot",
+                    message="ok",
+                ),
+            ),
+            search_runner=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("should not run")),
+        )
+
+        self.assertEqual(smoke.search.status, "skipped")
+        self.assertTrue(any("force_search" in item for item in smoke.next_steps))
+
+    def test_provider_smoke_can_force_end_to_end_search(self) -> None:
+        fake_search = type(
+            "SearchPayload",
+            (),
+            {
+                "keyword": type("Keyword", (), {"kind": "github_repo", "normalized_query": "anthropic/claude-code"})(),
+                "trend": type("Trend", (), {"series": [1, 2]})(),
+                "content_items": [1, 2, 3],
+                "availability": {"github_history": "ready", "newsnow_snapshot": "ready"},
+                "backfill_job": type("BackfillJob", (), {"status": "success"})(),
+            },
+        )()
+        smoke = run_provider_smoke(
+            query="anthropic/claude-code",
+            period="30d",
+            probe_mode="real",
+            force_search=True,
+            provider_status_loader=lambda: get_provider_status(Settings(provider_mode="real")),
+            provider_verify_runner=lambda **_: ProviderVerifyPayload(
+                probe_mode="real",
+                requested_mode="real",
+                effective_mode="real",
+                summary="probe failed",
+                github=ProviderProbePayload(
+                    source="github",
+                    attempted_provider="real",
+                    status="failed",
+                    endpoint="https://api.github.com/rate_limit",
+                    message="failed",
+                ),
+                newsnow=ProviderProbePayload(
+                    source="newsnow",
+                    attempted_provider="real",
+                    status="failed",
+                    endpoint="https://newsnow.example.com/api/s?id=weibo-hot",
+                    message="failed",
+                ),
+            ),
+            search_runner=lambda *_args, **_kwargs: fake_search,
+        )
+
+        self.assertEqual(smoke.search.status, "success")
+        self.assertEqual(smoke.search.trend_series_count, 2)
+        self.assertEqual(smoke.search.content_item_count, 3)
+
+    def test_parse_search_query_normalizes_github_url(self) -> None:
+        target = parse_search_query("https://github.com/Anthropic/Claude-Code/")
+        self.assertEqual(target.kind, "github_repo")
+        self.assertEqual(target.normalized_query, "anthropic/claude-code")
+        self.assertEqual(target.target_ref, "anthropic/claude-code")
+
+    def test_newsnow_endpoint_builder_prefers_query_param_and_keeps_legacy_fallback(self) -> None:
+        self.assertEqual(
+            build_newsnow_source_endpoint("https://newsnow.example.com", "weibo-hot"),
+            "https://newsnow.example.com/api/s?id=weibo",
+        )
+        self.assertEqual(
+            iter_newsnow_source_endpoints("https://newsnow.example.com", "weibo-hot"),
+            [
+                "https://newsnow.example.com/api/s?id=weibo",
+                "https://newsnow.example.com/api/s/weibo",
+                "https://newsnow.example.com/api/s?id=weibo-hot",
+                "https://newsnow.example.com/api/s/weibo-hot",
+            ],
+        )
+
+    def test_newsnow_source_id_normalizer_maps_legacy_aliases(self) -> None:
+        self.assertEqual(normalize_newsnow_source_id("weibo-hot"), "weibo")
+        self.assertEqual(normalize_newsnow_source_id("github-trending"), "github")
+        self.assertEqual(iter_newsnow_source_ids("weibo-hot"), ["weibo", "weibo-hot"])
+
+    def test_repository_search_backfill_creates_series(self) -> None:
+        repo_query = f"owner-{uuid4().hex[:8]}/repo-{uuid4().hex[:8]}"
+        background_tasks = BackgroundTasks()
+        initial = search_keyword(
+            db=self.db,
+            background_tasks=background_tasks,
+            query=repo_query,
+            period="30d",
+        )
+
+        self.assertEqual(initial.keyword.kind, "github_repo")
+        self.assertIsNotNone(initial.backfill_job)
+        self.assertIn(initial.availability["github_history"], {"missing", "pending", "running"})
+
+        self.db.close()
+        run_backfill_job(initial.backfill_job.id)
+        self.db = SessionLocal()
+
+        refreshed = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=repo_query,
+            period="30d",
+        )
+
+        self.assertTrue(refreshed.trend.series)
+        self.assertTrue(any(item.source == "github" for item in refreshed.content_items))
+        self.assertEqual(refreshed.availability["github_history"], "ready")
+        self.assertEqual(refreshed.backfill_job.status, "success")
+
+        status = get_backfill_status(self.db, refreshed.keyword.id)
+        self.assertIn(status.status, {"success", "partial"})
+        self.assertTrue(status.tasks)
+        self.assertTrue(any(task.source == "github" and task.task_type == "content" for task in status.tasks))
+
+    def test_search_reuses_failed_backfill_until_explicit_retry(self) -> None:
+        query = f"failed-{uuid4().hex[:8]}"
+        initial = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="30d",
+        )
+
+        class FailingProvider:
+            name = "failing"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                raise RuntimeError(f"probe blocked for {keyword_query}")
+
+        with patch("app.services.backfill.get_data_provider", return_value=FailingProvider()):
+            run_backfill_job(initial.backfill_job.id)
+
+        self.db.close()
+        self.db = SessionLocal()
+
+        failed = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="30d",
+        )
+
+        self.assertIsNotNone(failed.backfill_job)
+        self.assertEqual(failed.backfill_job.id, initial.backfill_job.id)
+        self.assertEqual(failed.backfill_job.status, "failed")
+        self.assertEqual(failed.availability["newsnow_snapshot"], "failed")
+        self.assertTrue(any("probe blocked" in (task.message or "") for task in failed.backfill_job.tasks))
+
+    def test_refresh_keyword_retries_failed_backfill_explicitly(self) -> None:
+        query = f"retry-{uuid4().hex[:8]}"
+
+        class FailingProvider:
+            name = "failing"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                raise RuntimeError(f"probe blocked for {keyword_query}")
+
+        with patch("app.services.backfill.get_data_provider", return_value=FailingProvider()):
+            first = refresh_keyword(query, run_backfill_now=True)
+            second = refresh_keyword(query, run_backfill_now=True)
+
+        self.assertIsNotNone(first.backfill_job)
+        self.assertIsNotNone(second.backfill_job)
+        self.assertEqual(first.backfill_job.status, "failed")
+        self.assertEqual(second.backfill_job.status, "failed")
+        self.assertNotEqual(first.backfill_job.id, second.backfill_job.id)
+        self.assertTrue(any("probe blocked" in (task.message or "") for task in second.backfill_job.tasks))
+
+    def test_search_can_filter_content_items_by_source(self) -> None:
+        repo_query = f"owner-{uuid4().hex[:8]}/repo-{uuid4().hex[:8]}"
+        refresh_keyword(repo_query, run_backfill_now=True)
+
+        github_only = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=repo_query,
+            period="30d",
+            content_source="github",
+        )
+        newsnow_only = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=repo_query,
+            period="30d",
+            content_source="newsnow",
+        )
+
+        self.assertTrue(github_only.content_items)
+        self.assertTrue(newsnow_only.content_items)
+        self.assertTrue(all(item.source == "github" for item in github_only.content_items))
+        self.assertTrue(all(item.source == "newsnow" for item in newsnow_only.content_items))
+
+    def test_keyword_trend_uses_cumulative_newsnow_curve(self) -> None:
+        query = f"keyword-{uuid4().hex[:8]}"
+        initial = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+
+        start_day = utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2)
+        raw_values = [2.0, 3.0, 4.0]
+        for offset, value in enumerate(raw_values):
+            self.db.add(
+                TrendPoint(
+                    keyword_id=initial.keyword.id,
+                    source="newsnow",
+                    metric="hot_hit_count",
+                    source_type="snapshot",
+                    bucket_granularity="day",
+                    bucket_start=start_day + timedelta(days=offset),
+                    value=value,
+                    raw_json=None,
+                )
+            )
+        self.db.commit()
+
+        refreshed = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+
+        newsnow_series = next(
+            series for series in refreshed.trend.series if series.source == "newsnow" and series.metric == "hot_hit_count"
+        )
+        self.assertEqual([point.value for point in newsnow_series.points], [2.0, 5.0, 9.0])
+
+    def test_track_toggle_round_trip(self) -> None:
+        query = f"keyword-{uuid4().hex[:8]}"
+        payload = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="30d",
+        )
+
+        tracked = set_track_state(self.db, payload.keyword.id, tracked=True)
+        self.assertTrue(tracked.is_tracked)
+
+        untracked = set_track_state(self.db, payload.keyword.id, tracked=False)
+        self.assertFalse(untracked.is_tracked)
+
+    def test_collector_refreshes_tracked_keywords(self) -> None:
+        query = f"tracked-{uuid4().hex[:8]}"
+        tracked = ensure_tracked(query)
+        self.assertTrue(tracked.is_tracked)
+
+        tracked_keywords = list_tracked_keywords()
+        self.assertTrue(any(item.id == tracked.id for item in tracked_keywords))
+
+        refreshed = refresh_keyword(query, run_backfill_now=True)
+        self.assertEqual(refreshed.keyword.id, tracked.id)
+
+        collected = collect_tracked_keywords()
+        self.assertTrue(any(item.keyword.id == tracked.id for item in collected))
+
+    def test_management_lists_keywords_and_collect_runs(self) -> None:
+        query = f"managed-{uuid4().hex[:8]}"
+        payload = refresh_keyword(query, run_backfill_now=True)
+
+        keywords = list_keywords()
+        self.assertTrue(any(item.id == payload.keyword.id for item in keywords))
+
+        tracked_only_keywords = list_keywords(tracked_only=True)
+        self.assertFalse(any(item.id == payload.keyword.id for item in tracked_only_keywords))
+
+        runs = list_collect_runs(limit=20)
+        self.assertTrue(any(run.keyword_id == payload.keyword.id for run in runs))
+
+    def test_scheduler_run_once_updates_state(self) -> None:
+        query = f"scheduler-{uuid4().hex[:8]}"
+        ensure_tracked(query)
+
+        def fake_job_runner(**_: object):
+            return type(
+                "FakeCollectResponse",
+                (),
+                {
+                    "triggered_count": 1,
+                    "results": [],
+                },
+            )()
+
+        scheduler = CollectionScheduler(
+            job_runner=fake_job_runner,
+            enabled=True,
+            interval_seconds=60,
+            initial_delay_seconds=0,
+            period="30d",
+            run_backfill_now=True,
+        )
+
+        response = scheduler.run_once()
+        snapshot = scheduler.snapshot()
+
+        self.assertEqual(response.triggered_count, 1)
+        self.assertEqual(snapshot.last_status, "success")
+        self.assertEqual(snapshot.last_triggered_count, 1)
+        self.assertEqual(snapshot.iteration_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
