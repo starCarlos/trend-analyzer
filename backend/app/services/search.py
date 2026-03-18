@@ -25,7 +25,7 @@ from app.services.query_parser import SearchTarget, resolve_search_query
 
 
 ALLOWED_PERIODS = {"7d": 7, "30d": 30, "90d": 90, "all": None}
-ALLOWED_CONTENT_SOURCES = {"all", "github", "newsnow"}
+ALLOWED_CONTENT_SOURCES = {"all", "github", "newsnow", "google_news"}
 CONTENT_REFRESH_WINDOW = timedelta(minutes=30)
 
 
@@ -37,7 +37,7 @@ def parse_period(period: str) -> int | None:
 
 def parse_content_source(content_source: str) -> str | None:
     if content_source not in ALLOWED_CONTENT_SOURCES:
-        raise HTTPException(status_code=400, detail="content_source must be one of all, github, newsnow")
+        raise HTTPException(status_code=400, detail="content_source must be one of all, github, newsnow, google_news")
     return None if content_source == "all" else content_source
 
 
@@ -190,13 +190,14 @@ def _build_snapshot(points: list[TrendPoint], contents: list[ContentItem]) -> Sn
     github_point = latest_by_metric.get(("github", "star_delta"))
     news_hits = latest_by_metric.get(("newsnow", "hot_hit_count"))
     news_platforms = latest_by_metric.get(("newsnow", "platform_count"))
+    newsnow_content_count = sum(1 for item in contents if item.source == "newsnow")
     updated_candidates = [point.collected_at for point in latest_by_metric.values()]
     updated_at = max(updated_candidates) if updated_candidates else None
 
     return SnapshotPayload(
         github_star_today=int(github_point.value) if github_point else None,
         newsnow_platform_count=int(news_platforms.value) if news_platforms else None,
-        newsnow_item_count=int(news_hits.value) if news_hits else len(contents) or None,
+        newsnow_item_count=int(news_hits.value) if news_hits else newsnow_content_count or None,
         updated_at=updated_at,
     )
 
@@ -228,13 +229,13 @@ def _apply_trend_semantics(keyword: Keyword, series_payloads: list[TrendSeriesPa
     if keyword.kind != "keyword":
         return series_payloads
 
-    has_newsnow_timeline = any(
-        series.source == "newsnow" and series.metric == "matched_item_count" and series.source_type == "timeline"
+    has_keyword_timeline = any(
+        series.metric == "matched_item_count" and series.source_type == "timeline"
         for series in series_payloads
     )
     transformed: list[TrendSeriesPayload] = []
     for series in series_payloads:
-        if has_newsnow_timeline and series.source == "newsnow" and series.metric == "hot_hit_count":
+        if has_keyword_timeline and series.source == "newsnow" and series.metric == "hot_hit_count":
             continue
         if series.source != "newsnow" or series.metric != "hot_hit_count":
             transformed.append(series)

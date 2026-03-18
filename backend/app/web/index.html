@@ -41,7 +41,7 @@
         <button class="button-primary" data-i18n="search.submit" id="search-button" type="submit">搜索</button>
         <div class="search-footnote">
           <span data-i18n="search.hint_repo">GitHub URL 和 owner/repo 默认展开全历史；裸仓库名解析成仓库后也会自动切换。</span>
-          <span data-i18n="search.hint_keyword">普通关键词默认先看 30 天；首包先返回，回填状态和来源可用性随后更新。</span>
+          <span data-i18n="search.hint_keyword">普通关键词默认先看 30 天；首包先给当前快照，后台再补带时间的历史新闻。</span>
         </div>
       </form>
 
@@ -67,7 +67,7 @@
             <button class="starter-card" data-starter-query="mcp" data-starter-period="30d" type="button">
               <span class="starter-kicker" data-i18n="starter.example_keyword_badge">普通关键词</span>
               <strong data-i18n="starter.example_keyword_title">mcp</strong>
-              <p data-i18n="starter.example_keyword_body">看 NewsNow 快照、内容列表，以及本地累计出来的时间线。</p>
+              <p data-i18n="starter.example_keyword_body">看当前快照、历史新闻线，以及最近抓到的内容条目。</p>
             </button>
           </div>
         </section>
@@ -87,8 +87,8 @@
             </article>
             <article class="promise-card">
               <span class="starter-kicker" data-i18n="starter.promise_keyword_kicker">关键词查询</span>
-              <strong data-i18n="starter.promise_keyword_title">NewsNow 快照 + 时间线</strong>
-              <p data-i18n="starter.promise_keyword_body">返回平台数、命中条目、最近内容，以及按发布时间回溯出来的热度线。</p>
+              <strong data-i18n="starter.promise_keyword_title">当前快照 + 历史新闻线</strong>
+              <p data-i18n="starter.promise_keyword_body">返回平台数、命中条目、最近内容，以及按发布时间补出来的历史热度线。</p>
             </article>
             <article class="promise-card">
               <span class="starter-kicker" data-i18n="starter.promise_trace_kicker">结果状态</span>
@@ -107,7 +107,7 @@
               <span data-i18n="hero.runtime">Python 运行时</span>
             </div>
             <h1 data-i18n="hero.headline">热榜会骗人，时间线不会。</h1>
-            <p data-i18n="hero.description">搜索 GitHub 仓库或普通关键词，先尽快返回第一批有用结果，再把剩余数据公开回填。</p>
+            <p data-i18n="hero.description">仓库查询返回 GitHub 历史与上下文，关键词查询返回当前快照与补回来的历史新闻线。</p>
           </div>
           <div class="hero-band">
             <span class="hero-band-item" data-i18n="hero.band_github">GitHub 历史</span>
@@ -264,7 +264,7 @@
       </section>
 
       <div class="error-state hidden" id="error-state"></div>
-      <div class="empty-state" data-i18n="empty.default" id="empty-state">优先使用 GitHub 直接路径开始，首次结果更强。普通关键词也能查，但历史需要反复采集后才会形成。</div>
+      <div class="empty-state" data-i18n="empty.default" id="empty-state">优先使用 GitHub 直接路径开始，首次结果更强。普通关键词会先返回快照，再补历史新闻和内容流。</div>
 
       <section class="panel hidden" id="loading-panel">
         <div class="panel-header">
@@ -347,6 +347,7 @@
             <select class="period-select" id="content-source-select">
               <option data-i18n="content_source.all" value="all" selected>全部来源</option>
               <option data-i18n="content_source.newsnow" value="newsnow">NewsNow</option>
+              <option data-i18n="content_source.google_news" value="google_news">Google News</option>
               <option data-i18n="content_source.github" value="github">GitHub</option>
             </select>
           </div>

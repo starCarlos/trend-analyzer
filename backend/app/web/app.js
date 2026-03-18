@@ -16,14 +16,14 @@
       hero: {
         runtime: "Python 运行时",
         headline: "搜仓库、URL 或关键词。",
-        description: "仓库查询返回 GitHub 历史与上下文，关键词查询返回 NewsNow 快照与时间线。",
+        description: "仓库查询返回 GitHub 历史与上下文，关键词查询返回当前快照与补回来的历史新闻线。",
         band_github: "GitHub URL",
         band_newsnow: "owner/repo",
         band_backfill: "普通关键词",
         scope_title: "输入规则",
         scope_github: "GitHub URL 会自动规范化成 owner/repo",
         scope_newsnow: "owner/repo 和明确的裸仓库名优先走仓库查询",
-        scope_tracking: "普通关键词优先补 NewsNow 快照、内容和时间线",
+        scope_tracking: "普通关键词优先补当前快照、历史新闻和内容流",
         note_fast_title: "先返回什么",
         note_fast_body: "首包先给当前可用结果，不等全部来源回填完成。",
         note_trace_title: "为什么结果会继续变化",
@@ -35,7 +35,7 @@
         searching: "搜索中...",
         failed: "搜索失败。",
         hint_repo: "GitHub URL 和 owner/repo 默认展开全历史；裸仓库名解析成仓库后也会自动切换。",
-        hint_keyword: "普通关键词默认先看 30 天；首包先返回，回填状态和来源可用性随后更新。",
+        hint_keyword: "普通关键词默认先看 30 天；首包先给当前快照，后台再补带时间的历史新闻。",
       },
       starter: {
         title: "从这三条路径开始",
@@ -48,15 +48,15 @@
         example_owner_repo_body: "标准仓库查询路径，适合直接看 star 曲线、PR、release 和 issue。",
         example_keyword_badge: "普通关键词",
         example_keyword_title: "mcp",
-        example_keyword_body: "看 NewsNow 快照、内容列表，以及本地累计出来的时间线。",
+        example_keyword_body: "看当前快照、历史新闻线，以及最近抓到的内容条目。",
         promise_title: "你会拿到什么",
         promise_subtitle: "先把结果承诺讲清楚，再让用户自己决定输入类型。",
         promise_repo_kicker: "仓库查询",
         promise_repo_title: "GitHub 历史 + 最新上下文",
         promise_repo_body: "返回 star 日增曲线、相关 PR / issue / release，并叠加可用性状态。",
         promise_keyword_kicker: "关键词查询",
-        promise_keyword_title: "NewsNow 快照 + 时间线",
-        promise_keyword_body: "返回平台数、命中条目、最近内容，以及按发布时间回溯出来的热度线。",
+        promise_keyword_title: "当前快照 + 历史新闻线",
+        promise_keyword_body: "返回平台数、命中条目、最近内容，以及按发布时间补出来的历史热度线。",
         promise_trace_kicker: "结果状态",
         promise_trace_title: "不等回填完成，也不隐藏失败",
         promise_trace_body: "首包先给你当前可用结果，后续回填继续补，失败信息和来源状态都直接展示。",
@@ -68,7 +68,7 @@
         health_backfill: "回填中",
         health_attention: "需要留意",
         deck_repo: "已拿到 GitHub 历史，当前页有 {count} 条相关内容；再往下看上下文和来源状态。",
-        deck_keyword: "今天快照里有 {items} 条 NewsNow 条目，覆盖 {platforms} 个平台；再往下看时间线是否继续长出来。",
+        deck_keyword: "今天快照里有 {items} 条 NewsNow 条目，覆盖 {platforms} 个平台；再往下看历史新闻线是否已经补齐。",
         meta_period: "周期 {value}",
         meta_updated: "更新于 {value}",
         meta_items: "{count} 条相关内容",
@@ -81,7 +81,7 @@
         stat_context_detail: "当前结果里的内容条目",
         stat_timeline: "时间线",
         stat_timeline_repo_detail: "GitHub 历史点位",
-        stat_timeline_keyword_detail: "关键词热度点位",
+        stat_timeline_keyword_detail: "历史新闻点位",
         stat_latest: "最新内容",
         stat_latest_detail: "当前页共有 {count} 条内容",
         status_tracking: "追踪状态",
@@ -95,7 +95,7 @@
         status_sources_na: "当前查询没有可用来源状态。",
         sources_all_ready: "全部来源已就绪。",
         trend_title_repo: "GitHub 历史线",
-        trend_title_keyword: "关键词热度线",
+        trend_title_keyword: "历史新闻热度线",
       },
       period: { "7d": "7 天", "30d": "30 天", "90d": "90 天", all: "全部" },
       recent: {
@@ -197,7 +197,7 @@
         subtitle: "首包应该先返回，历史回填随后完成。",
       },
       empty: {
-        default: "优先使用 GitHub 直接路径开始，首次结果更强。普通关键词也能查，但历史需要反复采集后才会形成。",
+        default: "优先使用 GitHub 直接路径开始，首次结果更强。普通关键词会先返回快照，再补历史新闻和内容流。",
       },
       content: {
         title: "相关内容流",
@@ -209,6 +209,7 @@
         all: "全部来源",
         newsnow: "NewsNow",
         github: "GitHub",
+        google_news: "Google News",
       },
       snapshot: {
         title: "今日快照",
@@ -242,20 +243,21 @@
       },
       trend: {
         subtitle: "周期 {period}。当前可见 {count} 个来源。",
-        no_history: "还没有本地关键词历史。第一条 NewsNow 快照会从今天开始积累。",
-        one_point: "积累从今天开始。当前已有 1 个快照点位，后续采集会继续延长曲线。",
-        curve: "关键词趋势图基于本地累计的 NewsNow 日快照曲线。",
-        history_one_point: "已按 NewsNow 内容发布时间回溯历史，但当前只有 1 个点位。",
-        history_curve: "关键词热度线已按 NewsNow 内容发布时间回溯，后续采集会继续补齐。",
-        no_visible: "当前还没有可见趋势线。普通关键词会优先按 NewsNow 内容发布时间回溯；如果拿不到足够时间信息，就从今日快照起步并继续补齐。",
+        no_history: "还没有历史新闻点位。后台会继续补带发布时间的内容，再把线拉长。",
+        one_point: "当前只有 1 个快照点位。若历史新闻还没补到，就会先从当前快照起步。",
+        curve: "当前看到的是快照累计线，后续如果补到更多带时间的内容，会切成历史新闻线。",
+        history_one_point: "已按带发布时间的内容回溯出历史，但目前只有 1 个点位。",
+        history_curve: "历史新闻线已按内容发布时间补出，后续采集还会继续补齐。",
+        no_visible: "当前还没有可见趋势线。普通关键词会先尝试按带发布时间的内容回溯；如果时间信息还不够，就先从今日快照起步。",
         points: "{count} 个点位",
       },
-      source: { github: "GitHub", newsnow: "NewsNow" },
+      source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", keyword_history: "历史新闻" },
       task_type: { history: "历史", content: "内容", snapshot: "快照" },
       source_type: {
         github_repo: "GitHub 仓库",
         keyword: "关键词",
         timeline: "内容时间线",
+        archive: "历史抓取",
       },
       metric_label: {
         hot_hit_count: "热度条目",
@@ -295,14 +297,14 @@
       hero: {
         runtime: "Python Runtime",
         headline: "Search a repo, URL, or keyword.",
-        description: "Repository queries return GitHub history and context. Keyword queries return NewsNow snapshot plus timeline.",
+        description: "Repository queries return GitHub history and context. Keyword queries return a current snapshot plus backfilled news history.",
         band_github: "GitHub URL",
         band_newsnow: "owner/repo",
         band_backfill: "Plain keyword",
         scope_title: "Input rules",
         scope_github: "GitHub URLs are normalized into owner/repo automatically",
         scope_newsnow: "owner/repo and clear bare repo names prefer the repository path",
-        scope_tracking: "Plain keywords backfill NewsNow snapshot, content, and timeline first",
+        scope_tracking: "Plain keywords backfill snapshot, historical news, and content first",
         note_fast_title: "What returns first",
         note_fast_body: "The first response returns current data before every source finishes backfilling.",
         note_trace_title: "Why the page keeps changing",
@@ -314,7 +316,7 @@
         searching: "Searching...",
         failed: "Search failed.",
         hint_repo: "GitHub URLs and owner/repo default to full history; bare repo names auto-switch after they resolve as repositories.",
-        hint_keyword: "Plain keywords default to 30 days. The first response lands first; source availability and backfill state update after that.",
+        hint_keyword: "Plain keywords default to 30 days. The first response returns the live snapshot first, then dated history gets filled in behind it.",
       },
       starter: {
         title: "Start with one of these three paths",
@@ -327,15 +329,15 @@
         example_owner_repo_body: "The standard repository path for star history, PRs, releases, and issues.",
         example_keyword_badge: "Plain keyword",
         example_keyword_title: "mcp",
-        example_keyword_body: "See the NewsNow snapshot, recent content items, and the locally accumulated timeline.",
+        example_keyword_body: "See the live snapshot, historical news line, and the recent content items.",
         promise_title: "What you get back",
         promise_subtitle: "Set the result contract first, then let the user choose the input type.",
         promise_repo_kicker: "Repository query",
         promise_repo_title: "GitHub history + fresh context",
         promise_repo_body: "Return star delta history, related PR / issue / release items, and explicit availability state.",
         promise_keyword_kicker: "Keyword query",
-        promise_keyword_title: "NewsNow snapshot + timeline",
-        promise_keyword_body: "Return platform count, hit count, recent content, and a heat line backfilled from publish times.",
+        promise_keyword_title: "Live snapshot + news history",
+        promise_keyword_body: "Return platform count, hit count, recent content, and a historical line backfilled from publish times.",
         promise_trace_kicker: "Result state",
         promise_trace_title: "No waiting for full backfill, no hidden failures",
         promise_trace_body: "The first response returns current data immediately, later backfill keeps filling in, and failure state stays visible.",
@@ -347,7 +349,7 @@
         health_backfill: "Backfilling",
         health_attention: "Needs attention",
         deck_repo: "GitHub history is ready. This page already has {count} related item(s); use the sections below for context and source state.",
-        deck_keyword: "Today's snapshot has {items} NewsNow item(s) across {platforms} platform(s); check below to see whether the line is starting to extend.",
+        deck_keyword: "Today's snapshot has {items} NewsNow item(s) across {platforms} platform(s); check below to see whether the historical line is filling in.",
         meta_period: "Period {value}",
         meta_updated: "Updated {value}",
         meta_items: "{count} related item(s)",
@@ -360,7 +362,7 @@
         stat_context_detail: "Content items in this result",
         stat_timeline: "Timeline",
         stat_timeline_repo_detail: "GitHub history points",
-        stat_timeline_keyword_detail: "Keyword heat points",
+        stat_timeline_keyword_detail: "Historical news points",
         stat_latest: "Latest item",
         stat_latest_detail: "{count} content item(s) on page",
         status_tracking: "Tracking",
@@ -374,7 +376,7 @@
         status_sources_na: "No active source state for this query.",
         sources_all_ready: "All active sources are ready.",
         trend_title_repo: "GitHub history line",
-        trend_title_keyword: "Keyword heat line",
+        trend_title_keyword: "Historical news line",
       },
       period: { "7d": "7 days", "30d": "30 days", "90d": "90 days", all: "All" },
       recent: {
@@ -476,7 +478,7 @@
         subtitle: "The first response should land before history finishes backfilling.",
       },
       empty: {
-        default: "Start with a direct GitHub path for the strongest first-run result. Plain keywords work too, but they only gain history after repeated collection.",
+        default: "Start with a direct GitHub path for the strongest first-run result. Plain keywords return a snapshot first, then fill in historical news and content.",
       },
       content: {
         title: "Context stream",
@@ -488,6 +490,7 @@
         all: "All sources",
         newsnow: "NewsNow",
         github: "GitHub",
+        google_news: "Google News",
       },
       snapshot: {
         title: "Today's readout",
@@ -521,20 +524,21 @@
       },
       trend: {
         subtitle: "Period {period}. {count} visible source(s).",
-        no_history: "No local keyword history yet. The first NewsNow snapshot starts accumulation from today.",
-        one_point: "Accumulation started today. One snapshot is available now, and later collections will extend the curve.",
-        curve: "Keyword trend is rendered as a locally accumulated NewsNow daily snapshot curve.",
-        history_one_point: "A first historical point was derived from NewsNow publish times, but only one point is available so far.",
-        history_curve: "Keyword heat is backfilled from NewsNow publish times, and later collections will keep extending the line.",
-        no_visible: "No visible trend line is ready yet. Plain keywords first try to backfill from NewsNow publish times; if that is too sparse, the curve starts from today's snapshot and grows over time.",
+        no_history: "No historical news points yet. The backend will keep filling in dated content and extend the line.",
+        one_point: "Only one snapshot point is visible right now. If dated history is still missing, the curve starts from the live snapshot first.",
+        curve: "The current curve is still the accumulated snapshot view. Once more dated content lands, it will switch over to the historical news line.",
+        history_one_point: "A first historical point was derived from dated content, but only one point is available so far.",
+        history_curve: "The historical news line is backfilled from publish times, and later collections will keep extending it.",
+        no_visible: "No visible trend line is ready yet. Plain keywords first try to backfill from dated content; if that is still sparse, the curve starts from today's snapshot.",
         points: "{count} points",
       },
-      source: { github: "GitHub", newsnow: "NewsNow" },
+      source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", keyword_history: "News history" },
       task_type: { history: "history", content: "content", snapshot: "snapshot" },
       source_type: {
         github_repo: "GitHub repo",
         keyword: "Keyword",
         timeline: "Content timeline",
+        archive: "Archive",
       },
       metric_label: {
         hot_hit_count: "Hit items",
@@ -1164,13 +1168,24 @@
     return state.result.keyword.kind === "github_repo" ? t("heading.repo") : t("heading.keyword");
   }
 
+  function getKeywordHistorySeries() {
+    if (!state.result) {
+      return null;
+    }
+    const matches = state.result.trend.series.filter(
+      (series) => series.metric === "matched_item_count" && series.source_type === "timeline"
+    );
+    if (!matches.length) {
+      return null;
+    }
+    return matches.reduce((best, series) => (series.points.length > best.points.length ? series : best));
+  }
+
   function getTrendNote() {
     if (!state.result || state.result.keyword.kind !== "keyword") {
       return null;
     }
-    const historySeries = state.result.trend.series.find(
-      (series) => series.source === "newsnow" && series.metric === "matched_item_count"
-    );
+    const historySeries = getKeywordHistorySeries();
     if (historySeries) {
       if (historySeries.points.length === 1) {
         return t("trend.history_one_point");
@@ -1215,15 +1230,19 @@
     if (!state.result || !state.result.trend.series.length) {
       return null;
     }
+    if (state.result.keyword.kind === "keyword") {
+      const historySeries = getKeywordHistorySeries();
+      if (historySeries) {
+        return historySeries;
+      }
+    }
     const preferences =
       state.result.keyword.kind === "github_repo"
         ? [
             ["github", "star_delta"],
-            ["newsnow", "matched_item_count"],
             ["newsnow", "hot_hit_count"],
           ]
         : [
-            ["newsnow", "matched_item_count"],
             ["newsnow", "hot_hit_count"],
             ["github", "star_delta"],
           ];

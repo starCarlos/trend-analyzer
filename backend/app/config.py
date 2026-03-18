@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     github_history_max_pages: int = 10
     newsnow_base_url: str = "https://newsnow.busiyi.world"
     newsnow_source_ids: str = "weibo,zhihu,bilibili,juejin,36kr,github"
+    google_news_enabled: bool = True
+    google_news_history_days: int = 365
+    google_news_max_items: int = 80
     request_timeout_seconds: float = 8.0
     http_proxy: str = ""
 

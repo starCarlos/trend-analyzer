@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
+import hashlib
+import html
 import json
 import re
 from typing import Protocol
-from urllib import error, request
+from urllib import error, parse, request
+import xml.etree.ElementTree as ET
 
 from app.config import Settings, get_settings
 from app.models import utcnow
@@ -29,6 +33,10 @@ NEWSNOW_RETRY_ATTEMPTS = 2
 JUEJIN_DATE_PUBLISHED_RE = re.compile(r'<meta[^>]+itemprop="datePublished"[^>]+content="([^"]+)"')
 JUEJIN_TIME_RE = re.compile(r'<time[^>]+datetime="([^"]+)"')
 JUEJIN_SCHEMA_DATE_RE = re.compile(r'"datePublished":"([^"]+)"')
+HTML_TAG_RE = re.compile(r"<[^>]+>")
+WHITESPACE_RE = re.compile(r"\s+")
+HAS_CJK_RE = re.compile(r"[\u3400-\u9FFF]")
+GOOGLE_NEWS_SOURCE_BLOCKLIST = {"x.com", "twitter.com"}
 
 
 class DataProvider(Protocol):
@@ -55,6 +63,10 @@ class MockDataProvider:
 
     def fetch_newsnow_snapshot(self, query: str) -> tuple[list[TrendPointInput], list[ContentItemInput]]:
         return generate_newsnow_snapshot(query)
+
+    def fetch_google_news_archive(self, query: str) -> list[ContentItemInput]:
+        del query
+        return []
 
 
 class RealDataProvider:
@@ -439,6 +451,172 @@ class RealDataProvider:
 
         return trend_points, content_items
 
+    @staticmethod
+    def _clean_html_text(value: str | None) -> str | None:
+        if not value:
+            return None
+        text = html.unescape(HTML_TAG_RE.sub(" ", value)).replace("\xa0", " ")
+        normalized = WHITESPACE_RE.sub(" ", text).strip()
+        return normalized or None
+
+    @staticmethod
+    def _parse_rfc822_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return parsedate_to_datetime(value).replace(tzinfo=None)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _strip_google_news_summary(title: str, source_name: str | None, description: str | None) -> str | None:
+        cleaned = RealDataProvider._clean_html_text(description)
+        if not cleaned:
+            return None
+
+        title_lc = title.casefold()
+        source_lc = source_name.casefold() if source_name else ""
+        candidate = cleaned
+
+        if candidate.casefold().startswith(title_lc):
+            candidate = candidate[len(title) :].lstrip(" -|:.")
+        if source_name and candidate.casefold().endswith(source_lc):
+            candidate = candidate[: -len(source_name)].rstrip(" -|:.")
+
+        normalized = WHITESPACE_RE.sub(" ", candidate).strip()
+        return normalized or None
+
+    @staticmethod
+    def _google_news_locale_order(query: str) -> list[tuple[str, str, str]]:
+        prefer_zh = bool(HAS_CJK_RE.search(query))
+        zh_locale = ("zh-CN", "CN", "CN:zh-Hans")
+        en_locale = ("en-US", "US", "US:en")
+        return [zh_locale, en_locale] if prefer_zh else [en_locale, zh_locale]
+
+    def _build_google_news_archive_url(self, query: str, *, hl: str, gl: str, ceid: str) -> str:
+        search_query = f'"{query.strip().replace("\"", " ")}"'
+        if self.settings.google_news_history_days > 0:
+            search_query = f"{search_query} when:{self.settings.google_news_history_days}d"
+        encoded_query = parse.quote_plus(search_query)
+        return f"https://news.google.com/rss/search?q={encoded_query}&hl={hl}&gl={gl}&ceid={parse.quote_plus(ceid)}"
+
+    @staticmethod
+    def _google_news_is_blocked(source_url: str | None) -> bool:
+        if not source_url:
+            return False
+        domain = parse.urlparse(source_url).netloc.casefold().removeprefix("www.")
+        return domain in GOOGLE_NEWS_SOURCE_BLOCKLIST
+
+    def _parse_google_news_archive_feed(self, xml_text: str, query: str, *, request_url: str) -> list[ContentItemInput]:
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError as exc:
+            raise ProviderError(f"Invalid Google News RSS payload from {request_url}: {exc}") from exc
+
+        query_lc = query.casefold()
+        items: list[ContentItemInput] = []
+        for node in root.findall("./channel/item"):
+            title = self._clean_html_text(node.findtext("title"))
+            if not title:
+                continue
+
+            source_node = node.find("source")
+            source_name = self._clean_html_text(source_node.text if source_node is not None else None) or "Google News"
+            source_url = source_node.get("url") if source_node is not None else None
+            if self._google_news_is_blocked(source_url):
+                continue
+
+            description = self._strip_google_news_summary(
+                title=title,
+                source_name=source_name,
+                description=node.findtext("description"),
+            )
+            searchable_text = " ".join(part for part in (title, description, source_name) if part).casefold()
+            if query_lc not in searchable_text:
+                continue
+
+            published_at = self._parse_rfc822_datetime(node.findtext("pubDate"))
+            if not published_at:
+                continue
+
+            link = self._clean_html_text(node.findtext("link"))
+            identity = "\0".join((query, source_name, published_at.isoformat(), title))
+            digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+
+            items.append(
+                ContentItemInput(
+                    source="google_news",
+                    source_type="archive",
+                    external_key=f"{query}:{digest}",
+                    title=title,
+                    url=link,
+                    summary=description,
+                    author=source_name,
+                    published_at=published_at,
+                    meta_json=json.dumps(
+                        {
+                            "provider": self.name,
+                            "query": query,
+                            "request_url": request_url,
+                            "source_url": source_url,
+                        }
+                    ),
+                )
+            )
+
+        return items
+
+    def fetch_google_news_archive(self, query: str) -> list[ContentItemInput]:
+        if not self.settings.google_news_enabled:
+            return []
+
+        normalized_query = " ".join(query.split())
+        if not normalized_query:
+            return []
+
+        fetched_items: list[ContentItemInput] = []
+        seen_identities: set[tuple[str, str, str]] = set()
+        errors: list[str] = []
+
+        for hl, gl, ceid in self._google_news_locale_order(normalized_query):
+            url = self._build_google_news_archive_url(normalized_query, hl=hl, gl=gl, ceid=ceid)
+            try:
+                xml_text = self._request_text(
+                    url,
+                    headers={
+                        "User-Agent": "TrendScope/0.1",
+                        "Accept": "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1",
+                    },
+                )
+            except Exception as exc:  # pragma: no cover - network dependent
+                errors.append(str(exc))
+                continue
+
+            for item in self._parse_google_news_archive_feed(xml_text, normalized_query, request_url=url):
+                identity = (
+                    item.title.casefold(),
+                    (item.author or "").casefold(),
+                    item.published_at.isoformat() if item.published_at else "",
+                )
+                if identity in seen_identities:
+                    continue
+                seen_identities.add(identity)
+                fetched_items.append(item)
+                if len(fetched_items) >= self.settings.google_news_max_items:
+                    break
+
+            if len(fetched_items) >= self.settings.google_news_max_items:
+                break
+
+        if fetched_items:
+            fetched_items.sort(key=lambda item: item.published_at or datetime.min, reverse=True)
+            return fetched_items[: self.settings.google_news_max_items]
+
+        if errors:
+            raise ProviderError(f"Google News archive fetch failed: {'；'.join(errors)}")
+
+        return []
+
     def _request_newsnow_source(self, source_id: str) -> dict[str, object]:
         errors: list[str] = []
         for url in iter_newsnow_source_endpoints(self.settings.newsnow_base_url, source_id):
@@ -515,6 +693,18 @@ class AutoDataProvider:
             return self.primary.fetch_newsnow_snapshot(query)
         except ProviderError:
             return self.fallback.fetch_newsnow_snapshot(query)
+
+    def fetch_google_news_archive(self, query: str) -> list[ContentItemInput]:
+        primary_fetcher = getattr(self.primary, "fetch_google_news_archive", None)
+        fallback_fetcher = getattr(self.fallback, "fetch_google_news_archive", None)
+
+        if not callable(primary_fetcher):
+            return fallback_fetcher(query) if callable(fallback_fetcher) else []
+
+        try:
+            return primary_fetcher(query)
+        except ProviderError:
+            return fallback_fetcher(query) if callable(fallback_fetcher) else []
 
 
 def get_data_provider() -> DataProvider:

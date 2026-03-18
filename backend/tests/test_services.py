@@ -482,6 +482,60 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(trend_points[0].metric, "hot_hit_count")
         self.assertEqual(trend_points[0].value, 1.0)
 
+    def test_real_provider_fetch_google_news_archive_parses_and_filters_feed(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                google_news_enabled=True,
+                google_news_history_days=365,
+                google_news_max_items=10,
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        rss_feed = """
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>OpenClaw 发布新版本</title>
+              <link>https://news.google.com/rss/articles/1</link>
+              <pubDate>Tue, 17 Mar 2026 04:42:44 GMT</pubDate>
+              <description><![CDATA[
+                <a href="https://news.google.com/rss/articles/1">OpenClaw 发布新版本</a>&nbsp;&nbsp;<font color="#6f6f6f">51CTO</font>
+              ]]></description>
+              <source url="https://www.51cto.com">51CTO</source>
+            </item>
+            <item>
+              <title>"spam.openclaw" - Results on X | Live Posts &amp; Updates</title>
+              <link>https://news.google.com/rss/articles/2</link>
+              <pubDate>Tue, 17 Mar 2026 06:00:00 GMT</pubDate>
+              <description><![CDATA[
+                <a href="https://news.google.com/rss/articles/2">"spam.openclaw" - Results on X | Live Posts &amp; Updates</a>
+              ]]></description>
+              <source url="https://x.com">x.com</source>
+            </item>
+            <item>
+              <title>Completely unrelated result</title>
+              <link>https://news.google.com/rss/articles/3</link>
+              <pubDate>Tue, 17 Mar 2026 08:00:00 GMT</pubDate>
+              <description><![CDATA[
+                <a href="https://news.google.com/rss/articles/3">Completely unrelated result</a>
+              ]]></description>
+              <source url="https://example.com">Example</source>
+            </item>
+          </channel>
+        </rss>
+        """
+
+        with patch.object(provider, "_request_text", return_value=rss_feed):
+            items = provider.fetch_google_news_archive("openclaw")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].source, "google_news")
+        self.assertEqual(items[0].source_type, "archive")
+        self.assertEqual(items[0].author, "51CTO")
+        self.assertEqual(items[0].published_at, datetime.fromisoformat("2026-03-17T04:42:44+00:00").replace(tzinfo=None))
+
     def test_provider_smoke_skips_search_when_probe_fails(self) -> None:
         smoke = run_provider_smoke(
             query="anthropic/claude-code",
@@ -942,6 +996,22 @@ class ServiceTestCase(unittest.TestCase):
                     ],
                 )
 
+            def fetch_google_news_archive(self, keyword_query: str):
+                self_query = keyword_query
+                return [
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key=f"{self_query}:archive:1",
+                        title=f"{self_query} archive item",
+                        url="https://example.com/archive/1",
+                        summary="archive",
+                        author="provider",
+                        published_at=today - timedelta(days=3, hours=-1),
+                        meta_json="{}",
+                    )
+                ]
+
         with patch("app.services.backfill.get_data_provider", return_value=TimelineProvider()):
             run_backfill_job(initial.backfill_job.id)
 
@@ -958,9 +1028,11 @@ class ServiceTestCase(unittest.TestCase):
         history_series = next(
             series
             for series in refreshed.trend.series
-            if series.source == "newsnow" and series.metric == "matched_item_count" and series.source_type == "timeline"
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
         )
-        self.assertEqual([point.value for point in history_series.points], [1.0, 2.0, 1.0])
+        self.assertEqual([point.value for point in history_series.points], [1.0, 1.0, 2.0, 1.0])
         self.assertFalse(any(series.source == "newsnow" and series.metric == "hot_hit_count" for series in refreshed.trend.series))
 
     def test_track_toggle_round_trip(self) -> None:

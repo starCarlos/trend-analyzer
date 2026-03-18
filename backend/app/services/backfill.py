@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.database import SessionLocal
 from app.models import BackfillJob, BackfillJobTask, CollectRun, ContentItem, Keyword, TrendPoint, utcnow
 from app.services.providers import get_data_provider
-from app.services.provider_types import TrendPointInput
+from app.services.provider_types import ContentItemInput, TrendPointInput
 
 
 def _upsert_trend_point(session, keyword_id: int, point) -> None:
@@ -75,7 +75,10 @@ def _upsert_content_item(session, keyword_id: int, item) -> None:
     )
 
 
-def _derive_newsnow_keyword_history_points(session, keyword: Keyword) -> list[TrendPointInput]:
+KEYWORD_HISTORY_SOURCES = {"newsnow", "google_news"}
+
+
+def _derive_keyword_history_points(session, keyword: Keyword) -> list[TrendPointInput]:
     if keyword.kind != "keyword":
         return []
 
@@ -84,7 +87,7 @@ def _derive_newsnow_keyword_history_points(session, keyword: Keyword) -> list[Tr
             select(ContentItem)
             .where(
                 ContentItem.keyword_id == keyword.id,
-                ContentItem.source == "newsnow",
+                ContentItem.source.in_(tuple(sorted(KEYWORD_HISTORY_SOURCES))),
             )
             .order_by(ContentItem.published_at.asc(), ContentItem.id.asc())
         )
@@ -103,7 +106,8 @@ def _derive_newsnow_keyword_history_points(session, keyword: Keyword) -> list[Tr
     raw_json = json.dumps(
         {
             "query": keyword.normalized_query,
-            "derived_from": "newsnow_content_items",
+            "derived_from": "dated_content_items",
+            "sources": sorted({item.source for item in content_items if item.source in KEYWORD_HISTORY_SOURCES}),
             "content_item_count": len(content_items),
             "bucket_count": len(counts_by_day),
         }
@@ -111,7 +115,7 @@ def _derive_newsnow_keyword_history_points(session, keyword: Keyword) -> list[Tr
 
     return [
         TrendPointInput(
-            source="newsnow",
+            source="keyword_history",
             metric="matched_item_count",
             source_type="timeline",
             bucket_granularity="day",
@@ -196,19 +200,37 @@ def run_backfill_job(job_id: int) -> None:
 
                 elif task.source == "newsnow" and task.task_type == "snapshot":
                     trend_points, content_items = provider.fetch_newsnow_snapshot(keyword.normalized_query)
+                    archive_items: list[ContentItemInput] = []
+                    archive_error: str | None = None
+                    archive_fetcher = getattr(provider, "fetch_google_news_archive", None)
+                    if keyword.kind == "keyword" and callable(archive_fetcher):
+                        try:
+                            archive_items = archive_fetcher(keyword.normalized_query)
+                        except Exception as exc:
+                            archive_error = str(exc)
                     for point in trend_points:
                         _upsert_trend_point(session, keyword.id, point)
                     for item in content_items:
                         _upsert_content_item(session, keyword.id, item)
-                    # SessionLocal disables autoflush, so flush inserted NewsNow items
+                    for item in archive_items:
+                        _upsert_content_item(session, keyword.id, item)
+                    # SessionLocal disables autoflush, so flush inserted content items
                     # before deriving history buckets from the accumulated content set.
                     session.flush()
-                    for point in _derive_newsnow_keyword_history_points(session, keyword):
+                    for point in _derive_keyword_history_points(session, keyword):
                         _upsert_trend_point(session, keyword.id, point)
+                    message = (
+                        f"Stored {len(trend_points)} points and {len(content_items) + len(archive_items)} "
+                        f"content items via {provider.name}."
+                    )
+                    if archive_items:
+                        message += f" Added {len(archive_items)} historical Google News item(s)."
+                    if archive_error:
+                        message += f" Historical archive skipped: {archive_error}."
                     _mark_task(
                         task,
                         "success",
-                        f"Stored {len(trend_points)} points and {len(content_items)} content items via {provider.name}.",
+                        message,
                     )
                 else:
                     _mark_task(task, "skipped", "Task type is not implemented.")
