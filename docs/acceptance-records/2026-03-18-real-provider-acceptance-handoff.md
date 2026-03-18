@@ -15,6 +15,10 @@
 ## 2. 当前状态
 
 - 2026-03-18 在用户自己的终端里，真实 provider 已经从失败恢复到可用
+- `docs/acceptance-records/2026-03-18-real-provider-acceptance.md` 已重新写回并补全
+- `TRENDSCOPE_UI_DRIVER=inprocess backend/.venv/bin/python scripts/local_acceptance.py --require-running --json` 已通过
+  - `status=passed`
+  - `provider_mode=real`
 - `provider-verify --probe-mode real` 已成功
   - GitHub: success
   - NewsNow: success
@@ -27,6 +31,11 @@
 - 当前 `provider-smoke` 里 `backfill_status=partial`
   - 这不是当前阻塞项
   - 真实 provider smoke 已判定通过
+- 裸仓库名 `openclaw` 现已能自动解析为 GitHub repository
+  - `GET /api/search?q=openclaw&period=30d`
+  - `keyword.kind=github_repo`
+  - `normalized_query=openclaw/openclaw`
+  - GitHub 历史与内容流均已返回
 
 ## 3. 本轮已完成的修复
 
@@ -92,17 +101,34 @@
 
 - `scripts/local_acceptance.py`
 
+### 3.6 裸仓库名自动解析修复
+
+- 搜索输入现在除了 GitHub URL 和 `owner/repo` 之外，还会对看起来像仓库名的单词做 GitHub 解析补充
+- 当 GitHub 搜索结果里存在稳定目标时，会把裸名称提升成真实仓库
+  - 当前已验证：`openclaw -> openclaw/openclaw`
+- 解析策略仍保持保守
+  - 只有在结果足够明确时才会提升
+  - 如果无法稳定判定，仍保留为普通关键词
+- `openclaw` 的接口与 inprocess UI smoke 均已验证通过
+
+相关文件：
+
+- `backend/app/services/query_parser.py`
+- `backend/app/services/github_repo_resolution.py`
+- `backend/app/services/search.py`
+- `backend/tests/test_services.py`
+- `docs/current-functional-flow.md`
+- `docs/mvp-completion-checklist.md`
+
 ## 4. 现在剩下的事情
 
-唯一还没完成的是：
+当前没有新的阻塞性待办。
 
-- 重新生成并写回 2026-03-18 这份真实 provider 验收记录
+如果还要继续收尾，优先顺序如下：
 
-原因：
-
-- 之前第一次跑 `scripts/update_real_provider_acceptance_record.py` 时，被本地空库 health probe 的代理问题打断
-- 这个问题已经修好
-- 还没重新执行一次最终写回命令
+- 人工用浏览器继续观察 `/tracked` 页上的 scheduler 长时间运行表现
+- 人工构造 `search / backfill / collect` 的失败场景，补失败态可读性证据
+- 如果后续继续改搜索体验，记得同步更新 `docs/current-functional-flow.md`
 
 ## 5. 直接复跑命令
 
@@ -112,7 +138,7 @@
 cd /home/admin_wsl/sunnet/trend-analyzer
 ```
 
-重新写回今天的记录：
+重新写回 2026-03-18 验收记录：
 
 ```bash
 backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py \
@@ -123,12 +149,24 @@ backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py \
   --screenshots-dir /tmp/trendscope-real-acceptance
 ```
 
-如果想先单独确认 CLI 结果：
+如果想先单独确认 CLI 与补充回归结果：
 
 ```bash
 cd /home/admin_wsl/sunnet/trend-analyzer/backend
 .venv/bin/python -m app.cli provider-verify --probe-mode real
 .venv/bin/python -m app.cli provider-smoke anthropic/claude-code --period 30d --probe-mode real
+```
+
+补充检查裸仓库名解析：
+
+```bash
+curl --noproxy '*' -fsS 'http://127.0.0.1:5060/api/search?q=openclaw&period=30d'
+backend/.venv/bin/python scripts/ui_smoke_test.py \
+  --driver inprocess \
+  --base-url http://127.0.0.1:5060 \
+  --repo-query openclaw \
+  --keyword-query mcp \
+  --output-json /tmp/trendscope-openclaw-ui-smoke.json
 ```
 
 ## 6. 当前测试状态
@@ -145,4 +183,4 @@ backend/.venv/bin/python -m unittest backend.tests.test_acceptance_scripts -v
 
 可以直接告诉新会话：
 
-> 继续处理 `docs/acceptance-records/2026-03-18-real-provider-acceptance-handoff.md`。2026-03-18 用户自己终端里的 `provider-verify` 和 `provider-smoke` 已经成功。NewsNow 接口路径、source id、代理下本地 health probe 的问题都已经修过了。当前只差重跑 `scripts/update_real_provider_acceptance_record.py`，把 `docs/acceptance-records/2026-03-18-real-provider-acceptance.md` 正式写完。
+> 继续处理 `docs/acceptance-records/2026-03-18-real-provider-acceptance-handoff.md`。2026-03-18 的真实 provider 验收记录已经写回，`local_acceptance` 已通过，NewsNow 接口路径、source id、代理下本地 health probe 的问题都已经修过了。额外完成了一项搜索体验修复：裸仓库名 `openclaw` 现在会自动解析成 `openclaw/openclaw`，接口和 UI smoke 都已经验证通过。当前没有新的阻塞项，后续主要是人工长时间观察 scheduler 和补失败态取证。

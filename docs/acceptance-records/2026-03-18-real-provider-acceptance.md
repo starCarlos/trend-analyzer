@@ -260,6 +260,17 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
 - 截图路径：/tmp/trendscope-real-acceptance-5060/trendscope-tracked-smoke-evidence.json
 - 备注：Triggered 1 collection run(s). Inprocess 取证仅重放当前 repo query，避免全量 tracked collection 拖慢验收。；自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance-5060/trendscope-tracked-smoke-evidence.json
 
+### 7.4 补充回归：裸仓库名搜索
+
+- 验证地址：http://127.0.0.1:5060/?q=openclaw&period=30d
+- 是否自动识别为 GitHub repository：`是`
+- 规范化结果是否为 `openclaw/openclaw`：`是`
+- 是否看到 GitHub 内容流：`是`
+- 是否看到趋势图：`是`
+- 补充证据：`GET /api/search?q=openclaw&period=30d` 返回 `keyword.kind=github_repo`
+- 取证路径：/tmp/trendscope-openclaw-ui-smoke.json
+- 备注：这是补充搜索体验回归，不属于原始 PRD 验收项；本次使用 inprocess UI smoke 验证裸仓库名会自动提升成真实 GitHub 仓库查询。
+
 ## 8. 追踪与采集结果
 
 - 是否验证 `Collect tracked`：`是`
