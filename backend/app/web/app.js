@@ -331,6 +331,11 @@
         matched_item_count: "匹配条目",
         star_delta: "Star 增量",
       },
+      metric_unit: {
+        hot_hit_count: "条命中",
+        matched_item_count: "条内容",
+        star_delta: "Star / 天",
+      },
       availability_key: {
         github_history: "GitHub 历史",
         github_content: "GitHub 内容",
@@ -681,6 +686,11 @@
         hot_hit_count: "Hit items",
         matched_item_count: "Matched items",
         star_delta: "Star delta",
+      },
+      metric_unit: {
+        hot_hit_count: "hits",
+        matched_item_count: "items",
+        star_delta: "stars / day",
       },
       availability_key: {
         github_history: "GitHub history",
@@ -1124,12 +1134,10 @@
     if (!value) {
       return t("generic.na");
     }
-    return new Date(value).toLocaleString(state.locale === "zh" ? "zh-CN" : "en-US", {
+    return new Date(value).toLocaleDateString(state.locale === "zh" ? "zh-CN" : "en-US", {
       year: "numeric",
       month: state.locale === "zh" ? "numeric" : "short",
       day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
     });
   }
 
@@ -1195,6 +1203,10 @@
 
   function formatMetricLabel(value) {
     return translateToken("metric_label", value);
+  }
+
+  function formatMetricUnit(value) {
+    return translateToken("metric_unit", value);
   }
 
   function summarizeAvailabilityMessage(message) {
@@ -1598,7 +1610,8 @@
     `;
   }
 
-  function sparklineSvg(points) {
+  function sparklineSvg(series) {
+    const points = series.points;
     if (!points.length) {
       return "";
     }
@@ -1620,8 +1633,9 @@
     const pointStep = points.length > 1 ? width / (points.length - 1) : width;
     const hitRadius = Math.max(8, Math.min(18, pointStep / 2));
     const dotRadius = points.length === 1 ? 4.5 : 3.2;
-    const bubbleWidth = width > 500 ? 168 : 154;
-    const bubbleHeight = 54;
+    const bubbleWidth = width > 500 ? 176 : 162;
+    const bubbleHeight = 66;
+    const bubbleUnit = escapeHtml(formatMetricUnit(series.metric));
     const pointMarkup = geometry
       .map((point) => {
         const bubbleX = clamp(point.x - bubbleWidth / 2, 8, width - bubbleWidth - 8);
@@ -1637,6 +1651,7 @@
                 <div class="sparkline-popover-card" xmlns="http://www.w3.org/1999/xhtml">
                   <span class="sparkline-popover-date">${bubbleDate}</span>
                   <strong class="sparkline-popover-value">${bubbleValue}</strong>
+                  <span class="sparkline-popover-unit">${bubbleUnit}</span>
                 </div>
               </foreignObject>
             </g>
@@ -2185,7 +2200,7 @@
                 <span>${getSeriesDateRange(series.points)}</span>
               </div>
             </header>
-            ${sparklineSvg(series.points)}
+            ${sparklineSvg(series)}
           </article>
         `
       )
