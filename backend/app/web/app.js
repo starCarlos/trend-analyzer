@@ -164,14 +164,16 @@
       heading: {
         default: "搜索一个仓库或关键词。",
         repo: "先看仓库信号，再看上下文。",
-        keyword: "先看关键词快照，再开始积累。",
+        keyword: "先看关键词历史，再看当前快照。",
       },
       trend: {
         subtitle: "周期 {period}。当前可见 {count} 个来源。",
         no_history: "还没有本地关键词历史。第一条 NewsNow 快照会从今天开始积累。",
         one_point: "积累从今天开始。当前已有 1 个快照点位，后续采集会继续延长曲线。",
         curve: "关键词趋势图基于本地累计的 NewsNow 日快照曲线。",
-        no_visible: "当前还没有可见趋势线。普通关键词会先从今日快照起步，后续采集会继续补齐曲线。",
+        history_one_point: "已按 NewsNow 内容发布时间回溯历史，但当前只有 1 个点位。",
+        history_curve: "关键词热度线已按 NewsNow 内容发布时间回溯，后续采集会继续补齐。",
+        no_visible: "当前还没有可见趋势线。普通关键词会优先按 NewsNow 内容发布时间回溯；如果拿不到足够时间信息，就从今日快照起步并继续补齐。",
         points: "{count} 个点位",
       },
       source: { github: "GitHub", newsnow: "NewsNow" },
@@ -179,9 +181,11 @@
       source_type: {
         github_repo: "GitHub 仓库",
         keyword: "关键词",
+        timeline: "内容时间线",
       },
       metric_label: {
         hot_hit_count: "热度条目",
+        matched_item_count: "匹配条目",
         star_delta: "Star 增量",
       },
       availability_key: {
@@ -368,14 +372,16 @@
       heading: {
         default: "Search one repository or keyword.",
         repo: "Repository intelligence, first.",
-        keyword: "Keyword snapshot, then accumulation.",
+        keyword: "Keyword history first, snapshot second.",
       },
       trend: {
         subtitle: "Period {period}. {count} visible source(s).",
         no_history: "No local keyword history yet. The first NewsNow snapshot starts accumulation from today.",
         one_point: "Accumulation started today. One snapshot is available now, and later collections will extend the curve.",
         curve: "Keyword trend is rendered as a locally accumulated NewsNow daily snapshot curve.",
-        no_visible: "No visible trend line is ready yet. For plain keywords, today's snapshot starts accumulation and later collections extend the curve.",
+        history_one_point: "A first historical point was derived from NewsNow publish times, but only one point is available so far.",
+        history_curve: "Keyword heat is backfilled from NewsNow publish times, and later collections will keep extending the line.",
+        no_visible: "No visible trend line is ready yet. Plain keywords first try to backfill from NewsNow publish times; if that is too sparse, the curve starts from today's snapshot and grows over time.",
         points: "{count} points",
       },
       source: { github: "GitHub", newsnow: "NewsNow" },
@@ -383,9 +389,11 @@
       source_type: {
         github_repo: "GitHub repo",
         keyword: "Keyword",
+        timeline: "Content timeline",
       },
       metric_label: {
         hot_hit_count: "Hit items",
+        matched_item_count: "Matched items",
         star_delta: "Star delta",
       },
       availability_key: {
@@ -944,6 +952,15 @@
   function getTrendNote() {
     if (!state.result || state.result.keyword.kind !== "keyword") {
       return null;
+    }
+    const historySeries = state.result.trend.series.find(
+      (series) => series.source === "newsnow" && series.metric === "matched_item_count"
+    );
+    if (historySeries) {
+      if (historySeries.points.length === 1) {
+        return t("trend.history_one_point");
+      }
+      return t("trend.history_curve");
     }
     const newsnowSeries = state.result.trend.series.find(
       (series) => series.source === "newsnow" && series.metric === "hot_hit_count"

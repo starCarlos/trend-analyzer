@@ -227,8 +227,14 @@ def _apply_trend_semantics(keyword: Keyword, series_payloads: list[TrendSeriesPa
     if keyword.kind != "keyword":
         return series_payloads
 
+    has_newsnow_timeline = any(
+        series.source == "newsnow" and series.metric == "matched_item_count" and series.source_type == "timeline"
+        for series in series_payloads
+    )
     transformed: list[TrendSeriesPayload] = []
     for series in series_payloads:
+        if has_newsnow_timeline and series.source == "newsnow" and series.metric == "hot_hit_count":
+            continue
         if series.source != "newsnow" or series.metric != "hot_hit_count":
             transformed.append(series)
             continue

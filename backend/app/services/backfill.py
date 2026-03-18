@@ -1,3 +1,4 @@
+import json
 from time import perf_counter
 
 from sqlalchemy import select
@@ -5,6 +6,7 @@ from sqlalchemy import select
 from app.database import SessionLocal
 from app.models import BackfillJob, BackfillJobTask, CollectRun, ContentItem, Keyword, TrendPoint, utcnow
 from app.services.providers import get_data_provider
+from app.services.provider_types import TrendPointInput
 
 
 def _upsert_trend_point(session, keyword_id: int, point) -> None:
@@ -71,6 +73,54 @@ def _upsert_content_item(session, keyword_id: int, item) -> None:
             meta_json=item.meta_json,
         )
     )
+
+
+def _derive_newsnow_keyword_history_points(session, keyword: Keyword) -> list[TrendPointInput]:
+    if keyword.kind != "keyword":
+        return []
+
+    content_items = list(
+        session.scalars(
+            select(ContentItem)
+            .where(
+                ContentItem.keyword_id == keyword.id,
+                ContentItem.source == "newsnow",
+            )
+            .order_by(ContentItem.published_at.asc(), ContentItem.id.asc())
+        )
+    )
+
+    counts_by_day: dict = {}
+    for item in content_items:
+        if not item.published_at:
+            continue
+        bucket_start = item.published_at.replace(hour=0, minute=0, second=0, microsecond=0)
+        counts_by_day[bucket_start] = counts_by_day.get(bucket_start, 0) + 1
+
+    if not counts_by_day:
+        return []
+
+    raw_json = json.dumps(
+        {
+            "query": keyword.normalized_query,
+            "derived_from": "newsnow_content_items",
+            "content_item_count": len(content_items),
+            "bucket_count": len(counts_by_day),
+        }
+    )
+
+    return [
+        TrendPointInput(
+            source="newsnow",
+            metric="matched_item_count",
+            source_type="timeline",
+            bucket_granularity="day",
+            bucket_start=bucket_start,
+            value=float(count),
+            raw_json=raw_json,
+        )
+        for bucket_start, count in sorted(counts_by_day.items())
+    ]
 
 
 def _mark_task(task: BackfillJobTask, status: str, message: str | None = None) -> None:
@@ -150,6 +200,11 @@ def run_backfill_job(job_id: int) -> None:
                         _upsert_trend_point(session, keyword.id, point)
                     for item in content_items:
                         _upsert_content_item(session, keyword.id, item)
+                    # SessionLocal disables autoflush, so flush inserted NewsNow items
+                    # before deriving history buckets from the accumulated content set.
+                    session.flush()
+                    for point in _derive_newsnow_keyword_history_points(session, keyword):
+                        _upsert_trend_point(session, keyword.id, point)
                     _mark_task(
                         task,
                         "success",

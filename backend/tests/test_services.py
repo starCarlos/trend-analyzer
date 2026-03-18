@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -38,6 +38,7 @@ from app.services.provider_urls import (
     iter_newsnow_source_ids,
     normalize_newsnow_source_id,
 )
+from app.services.provider_types import ContentItemInput, TrendPointInput
 from app.services.providers import ProviderHttpError, RealDataProvider
 from app.services.provider_verification import verify_provider_connectivity
 from app.services.query_parser import parse_search_query
@@ -433,6 +434,53 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(trend_points[0].metric, "hot_hit_count")
         self.assertEqual(trend_points[0].value, 1.0)
 
+    def test_real_provider_extracts_juejin_published_at_from_article_html(self) -> None:
+        html = """
+        <html>
+          <head>
+            <meta itemprop="datePublished" content="2026-03-16T09:01:50.000Z">
+          </head>
+          <body></body>
+        </html>
+        """
+
+        published_at = RealDataProvider._extract_juejin_published_at(html)
+
+        self.assertEqual(published_at, datetime.fromisoformat("2026-03-16T09:01:50+00:00").replace(tzinfo=None))
+
+    def test_real_provider_fetch_newsnow_snapshot_enriches_juejin_time_when_missing(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                newsnow_base_url="https://newsnow.example.com",
+                newsnow_source_ids="juejin",
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        with patch.object(
+            provider,
+            "_request_newsnow_source",
+            return_value={
+                "items": [
+                    {
+                        "title": "OpenClaw setup notes",
+                        "url": "https://juejin.cn/post/7617647693184581658",
+                    }
+                ]
+            },
+        ), patch.object(
+            provider,
+            "_request_text",
+            return_value='<meta itemprop="datePublished" content="2026-03-16T09:01:50.000Z">',
+        ):
+            trend_points, items = provider.fetch_newsnow_snapshot("openclaw")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].published_at, datetime.fromisoformat("2026-03-16T09:01:50+00:00").replace(tzinfo=None))
+        self.assertEqual(trend_points[0].metric, "hot_hit_count")
+        self.assertEqual(trend_points[0].value, 1.0)
+
     def test_provider_smoke_skips_search_when_probe_fails(self) -> None:
         smoke = run_provider_smoke(
             query="anthropic/claude-code",
@@ -698,6 +746,118 @@ class ServiceTestCase(unittest.TestCase):
             series for series in refreshed.trend.series if series.source == "newsnow" and series.metric == "hot_hit_count"
         )
         self.assertEqual([point.value for point in newsnow_series.points], [2.0, 5.0, 9.0])
+
+    def test_keyword_search_derives_history_from_newsnow_content_timeline(self) -> None:
+        query = f"timeline-{uuid4().hex[:8]}"
+        initial = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        class TimelineProvider:
+            name = "timeline"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                self_query = keyword_query
+                return (
+                    [
+                        TrendPointInput(
+                            source="newsnow",
+                            metric="hot_hit_count",
+                            source_type="snapshot",
+                            bucket_granularity="day",
+                            bucket_start=today,
+                            value=4.0,
+                            raw_json=f'{{"query":"{self_query}"}}',
+                        ),
+                        TrendPointInput(
+                            source="newsnow",
+                            metric="platform_count",
+                            source_type="snapshot",
+                            bucket_granularity="day",
+                            bucket_start=today,
+                            value=2.0,
+                            raw_json=f'{{"query":"{self_query}"}}',
+                        ),
+                    ],
+                    [
+                        ContentItemInput(
+                            source="newsnow",
+                            source_type="snapshot",
+                            external_key=f"{self_query}:1",
+                            title=f"{self_query} item 1",
+                            url="https://example.com/1",
+                            summary="first",
+                            author="provider",
+                            published_at=today - timedelta(days=2, hours=-2),
+                            meta_json="{}",
+                        ),
+                        ContentItemInput(
+                            source="newsnow",
+                            source_type="snapshot",
+                            external_key=f"{self_query}:2",
+                            title=f"{self_query} item 2",
+                            url="https://example.com/2",
+                            summary="second",
+                            author="provider",
+                            published_at=today - timedelta(days=1, hours=-3),
+                            meta_json="{}",
+                        ),
+                        ContentItemInput(
+                            source="newsnow",
+                            source_type="snapshot",
+                            external_key=f"{self_query}:3",
+                            title=f"{self_query} item 3",
+                            url="https://example.com/3",
+                            summary="third",
+                            author="provider",
+                            published_at=today - timedelta(days=1, hours=-6),
+                            meta_json="{}",
+                        ),
+                        ContentItemInput(
+                            source="newsnow",
+                            source_type="snapshot",
+                            external_key=f"{self_query}:4",
+                            title=f"{self_query} item 4",
+                            url="https://example.com/4",
+                            summary="fourth",
+                            author="provider",
+                            published_at=today,
+                            meta_json="{}",
+                        ),
+                    ],
+                )
+
+        with patch("app.services.backfill.get_data_provider", return_value=TimelineProvider()):
+            run_backfill_job(initial.backfill_job.id)
+
+        self.db.close()
+        self.db = SessionLocal()
+
+        refreshed = search_keyword(
+            db=self.db,
+            background_tasks=BackgroundTasks(),
+            query=query,
+            period="all",
+        )
+
+        history_series = next(
+            series
+            for series in refreshed.trend.series
+            if series.source == "newsnow" and series.metric == "matched_item_count" and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in history_series.points], [1.0, 2.0, 1.0])
+        self.assertFalse(any(series.source == "newsnow" and series.metric == "hot_hit_count" for series in refreshed.trend.series))
 
     def test_track_toggle_round_trip(self) -> None:
         query = f"keyword-{uuid4().hex[:8]}"

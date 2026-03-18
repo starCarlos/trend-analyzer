@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import json
+import re
 from typing import Protocol
 from urllib import error, request
 
@@ -25,6 +26,9 @@ class ProviderHttpError(ProviderError):
 
 
 NEWSNOW_RETRY_ATTEMPTS = 2
+JUEJIN_DATE_PUBLISHED_RE = re.compile(r'<meta[^>]+itemprop="datePublished"[^>]+content="([^"]+)"')
+JUEJIN_TIME_RE = re.compile(r'<time[^>]+datetime="([^"]+)"')
+JUEJIN_SCHEMA_DATE_RE = re.compile(r'"datePublished":"([^"]+)"')
 
 
 class DataProvider(Protocol):
@@ -58,6 +62,7 @@ class RealDataProvider:
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self._published_at_cache: dict[str, datetime | None] = {}
         handlers: list[request.BaseHandler] = []
         if settings.http_proxy:
             handlers.append(request.ProxyHandler({"http": settings.http_proxy, "https": settings.http_proxy}))
@@ -79,6 +84,17 @@ class RealDataProvider:
                 payload = json.loads(response.read().decode("utf-8"))
                 response_headers = {key: value for key, value in response.info().items()}
                 return payload, response_headers
+        except error.HTTPError as exc:  # pragma: no cover - network dependent
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise ProviderHttpError(exc.code, url, detail[:200]) from exc
+        except error.URLError as exc:  # pragma: no cover - network dependent
+            raise ProviderError(f"Network error for {url}: {exc.reason}") from exc
+
+    def _request_text(self, url: str, headers: dict[str, str]) -> str:
+        req = request.Request(url, headers=headers)
+        try:
+            with self.opener.open(req, timeout=self.settings.request_timeout_seconds) as response:
+                return response.read().decode("utf-8", errors="ignore")
         except error.HTTPError as exc:  # pragma: no cover - network dependent
             detail = exc.read().decode("utf-8", errors="ignore")
             raise ProviderHttpError(exc.code, url, detail[:200]) from exc
@@ -302,6 +318,36 @@ class RealDataProvider:
                     continue
         return None
 
+    @classmethod
+    def _extract_juejin_published_at(cls, html: str) -> datetime | None:
+        for pattern in (JUEJIN_DATE_PUBLISHED_RE, JUEJIN_TIME_RE, JUEJIN_SCHEMA_DATE_RE):
+            match = pattern.search(html)
+            if not match:
+                continue
+            published_at = cls._parse_newsnow_datetime(match.group(1))
+            if published_at:
+                return published_at
+        return None
+
+    def _resolve_newsnow_published_at(self, platform: str, url: str | None) -> datetime | None:
+        if not url:
+            return None
+        if platform != "juejin":
+            return None
+        if url in self._published_at_cache:
+            return self._published_at_cache[url]
+
+        html = self._request_text(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 TrendScope/0.1",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        published_at = self._extract_juejin_published_at(html)
+        self._published_at_cache[url] = published_at
+        return published_at
+
     def fetch_newsnow_snapshot(self, query: str) -> tuple[list[TrendPointInput], list[ContentItemInput]]:
         query_lc = query.casefold()
         fetched_at = utcnow().replace(microsecond=0)
@@ -331,6 +377,8 @@ class RealDataProvider:
                 published_at = self._parse_newsnow_datetime(
                     str(item.get("time") or item.get("pubDate") or item.get("published_at") or "").strip()
                 )
+                if not published_at:
+                    published_at = self._resolve_newsnow_published_at(platform, str(url_value) if url_value else None)
                 external_key = str(url_value or f"{source_id}:{title}:{index}")
                 summary = str(item.get("description") or item.get("digest") or "").strip() or None
 
