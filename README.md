@@ -145,6 +145,7 @@ scripts/   local acceptance, real-provider acceptance, and smoke helpers
 
 ## Key Docs
 
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 - [`docs/README.md`](./docs/README.md)
 - [`docs/product-prd.md`](./docs/product-prd.md)
 - [`docs/technical-spec.md`](./docs/technical-spec.md)
