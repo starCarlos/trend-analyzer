@@ -19,6 +19,9 @@
 - `TRENDSCOPE_UI_DRIVER=inprocess backend/.venv/bin/python scripts/local_acceptance.py --require-running --json` 已通过
   - `status=passed`
   - `provider_mode=real`
+- 已补做两类临时 probe 验证
+  - `scheduler_probe`：验证 tracked 关键词会被 scheduler 自动触发采集，并写入 success `collect_runs`
+  - `failure_probe`：验证 `search / backfill / collect` 失败时，API 返回和 `collect_logs` 都有可读错误信息
 - `provider-verify --probe-mode real` 已成功
   - GitHub: success
   - NewsNow: success
@@ -122,12 +125,11 @@
 
 ## 4. 现在剩下的事情
 
-当前没有新的阻塞性待办。
+当前没有新的阻塞性待办，也没有未收口的 PRD 验收项。
 
-如果还要继续收尾，优先顺序如下：
+如果还要继续补强，优先顺序如下：
 
 - 人工用浏览器继续观察 `/tracked` 页上的 scheduler 长时间运行表现
-- 人工构造 `search / backfill / collect` 的失败场景，补失败态可读性证据
 - 如果后续继续改搜索体验，记得同步更新 `docs/current-functional-flow.md`
 
 ## 5. 直接复跑命令
@@ -169,6 +171,20 @@ backend/.venv/bin/python scripts/ui_smoke_test.py \
   --output-json /tmp/trendscope-openclaw-ui-smoke.json
 ```
 
+补充做工程验证 probe：
+
+```bash
+HOST=127.0.0.1 PORT=5061 RELOAD=0 APP_ENV=scheduler_probe PROVIDER_MODE=real \
+DATABASE_URL=sqlite:////tmp/trendscope-scheduler-check.db \
+SCHEDULER_ENABLED=1 SCHEDULER_INTERVAL_SECONDS=5 SCHEDULER_INITIAL_DELAY_SECONDS=1 \
+backend/.venv/bin/python backend/run_server.py
+
+HOST=127.0.0.1 PORT=5062 RELOAD=0 APP_ENV=failure_probe PROVIDER_MODE=real \
+DATABASE_URL=sqlite:////tmp/trendscope-failure-check.db \
+NEWSNOW_BASE_URL=http://127.0.0.1:9 REQUEST_TIMEOUT_SECONDS=1 \
+backend/.venv/bin/python backend/run_server.py
+```
+
 ## 6. 当前测试状态
 
 以下测试已通过：
@@ -183,4 +199,4 @@ backend/.venv/bin/python -m unittest backend.tests.test_acceptance_scripts -v
 
 可以直接告诉新会话：
 
-> 继续处理 `docs/acceptance-records/2026-03-18-real-provider-acceptance-handoff.md`。2026-03-18 的真实 provider 验收记录已经写回，`local_acceptance` 已通过，NewsNow 接口路径、source id、代理下本地 health probe 的问题都已经修过了。额外完成了一项搜索体验修复：裸仓库名 `openclaw` 现在会自动解析成 `openclaw/openclaw`，接口和 UI smoke 都已经验证通过。当前没有新的阻塞项，后续主要是人工长时间观察 scheduler 和补失败态取证。
+> 继续处理 `docs/acceptance-records/2026-03-18-real-provider-acceptance-handoff.md`。2026-03-18 的真实 provider 验收记录已经写回，`local_acceptance` 已通过，NewsNow 接口路径、source id、代理下本地 health probe 的问题都已经修过了。额外完成了两类补充验证：裸仓库名 `openclaw` 现在会自动解析成 `openclaw/openclaw`，接口和 UI smoke 已通过；`scheduler_probe` 和 `failure_probe` 已分别验证 scheduler 自动采集以及 `search/backfill/collect` 失败态的可读性。当前没有新的阻塞项，后续只剩可选的人眼长期观察。

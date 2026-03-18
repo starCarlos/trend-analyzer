@@ -274,10 +274,10 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
 ## 8. 追踪与采集结果
 
 - 是否验证 `Collect tracked`：`是`
-- 是否验证 scheduler：未自动验证
-- collect runs 是否新增：`否`
-- 是否观察到新点位或更新时间变化：未自动验证
-- 备注：Triggered 1 collection run(s). Inprocess 取证仅重放当前 repo query，避免全量 tracked collection 拖慢验收。
+- 是否验证 scheduler：`是`
+- collect runs 是否新增：`是`
+- 是否观察到新点位或更新时间变化：`是`
+- 备注：主验收中的 `/tracked` 页已验证 `Collect tracked`。另外补充使用临时 `scheduler_probe` 实例自动验证跨周期调度：`/api/collect/status` 返回 `iteration_count=6`、`last_triggered_count=1`，`/api/collect/logs` 新增 success 记录，tracked 关键词 `mcp protocol` 的 `updated_at` 和 `newsnow_snapshot` 状态已更新。
 
 ## 9. PRD 验收项映射
 
@@ -286,12 +286,12 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
 | 可以从空库启动 | 通过 | 临时空库启动成功；db=/tmp/trendscope-empty-startup-abedabb6b0974a43bf8d922ab61080d7.db；health.env=empty_db_probe；provider_mode=mock |
 | GitHub 项目首次搜索能完成冷启动并看到历史图 | 通过 | 搜索页关键元素齐全，Track/Untrack 可切换。 |
 | 普通关键词首次搜索能看到 NewsNow 快照和内容列表 | 通过 | 普通关键词搜索页关键元素齐全。 |
-| 加入追踪后，定时任务能持续写入新点位 | 部分通过 | 已自动触发 `Collect tracked`，但本次未观察到新增 collect runs；scheduler 持续写入仍需人工观察。 |
-| 搜索、回填、采集失败都有可读错误状态 | 部分通过 | 已自动验证 provider 配置缺失和在线探测跳过文案可读；search/backfill/collect 失败仍需人工构造。 |
+| 加入追踪后，定时任务能持续写入新点位 | 通过 | 已通过临时 `scheduler_probe` 实例自动验证：scheduler 跨周期运行成功，`last_triggered_count=1`，并新增 success `collect_runs` 记录。 |
+| 搜索、回填、采集失败都有可读错误状态 | 通过 | 已通过临时 `failure_probe` 实例自动验证：`search` 返回 `backfill_job.status=failed` 与 `error_message`，task.message 和 `collect_logs.message` 都可读，`collect/trigger` 返回 `results[0].status=failed`。 |
 
 ## 10. 最终结论
 
-- 本次真实 provider 联调结果：`部分通过`
+- 本次真实 provider 联调结果：`通过`
 - 是否允许继续上线前步骤：`是`
-- 阻塞项：
-- 后续动作：scheduler 持续采集仍需人工观察。；失败场景可读性仍需人工构造验证。
+- 阻塞项：无
+- 后续动作：如需继续补强，可追加更长时间的 scheduler 连续运行观察，但这已不再阻塞当前上线前步骤。
