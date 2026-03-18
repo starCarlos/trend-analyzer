@@ -3,25 +3,99 @@
   const LOCALE_KEY = "trendscope.locale.v1";
   const MAX_RECENT_SEARCHES = 10;
   const DEFAULT_PROVIDER_SMOKE_QUERY = "openai/openai-python";
+  const DEFAULT_PERIOD = "30d";
+  const DEFAULT_REPO_PERIOD = "all";
   const DEFAULT_LOCALE = "zh";
+  const GITHUB_URL_RE = /^https?:\/\/(?:www\.)?github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git|\/)?$/i;
+  const OWNER_REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
   const MESSAGES = {
     zh: {
       document: { title: "TrendScope" },
+      brand: { note: "仓库趋势与关键词时间线。" },
       nav: { search: "搜索", tracked: "追踪" },
       hero: {
         runtime: "Python 运行时",
-        headline: "热榜会骗人，时间线不会。",
-        description: "搜索 GitHub 仓库或普通关键词，先尽快返回第一批有用结果，再把剩余数据公开回填。",
-        scope_title: "当前范围",
-        scope_github: "GitHub 历史趋势，仅用于仓库类查询",
-        scope_newsnow: "NewsNow 快照，覆盖仓库和普通关键词",
-        scope_tracking: "追踪状态、来源筛选和异步回填状态",
+        headline: "搜仓库、URL 或关键词。",
+        description: "仓库查询返回 GitHub 历史与上下文，关键词查询返回 NewsNow 快照与时间线。",
+        band_github: "GitHub URL",
+        band_newsnow: "owner/repo",
+        band_backfill: "普通关键词",
+        scope_title: "输入规则",
+        scope_github: "GitHub URL 会自动规范化成 owner/repo",
+        scope_newsnow: "owner/repo 和明确的裸仓库名优先走仓库查询",
+        scope_tracking: "普通关键词优先补 NewsNow 快照、内容和时间线",
+        note_fast_title: "先返回什么",
+        note_fast_body: "首包先给当前可用结果，不等全部来源回填完成。",
+        note_trace_title: "为什么结果会继续变化",
+        note_trace_body: "后续回填会继续补历史、内容和状态，失败信息也会留在页面上。",
       },
       search: {
         placeholder: "试试 openai/openai-python 或 MCP",
         submit: "搜索",
         searching: "搜索中...",
         failed: "搜索失败。",
+        hint_repo: "GitHub URL 和 owner/repo 默认展开全历史；裸仓库名解析成仓库后也会自动切换。",
+        hint_keyword: "普通关键词默认先看 30 天；首包先返回，回填状态和来源可用性随后更新。",
+      },
+      starter: {
+        title: "从这三条路径开始",
+        subtitle: "不知道该搜什么时，先从一个示例打开真实结果，再按你的目标改查询。",
+        example_repo_badge: "裸仓库名",
+        example_repo_title: "openclaw",
+        example_repo_body: "验证仓库名自动识别，直接看 GitHub 历史线和最新内容。",
+        example_owner_repo_badge: "owner/repo",
+        example_owner_repo_title: "openai/openai-python",
+        example_owner_repo_body: "标准仓库查询路径，适合直接看 star 曲线、PR、release 和 issue。",
+        example_keyword_badge: "普通关键词",
+        example_keyword_title: "mcp",
+        example_keyword_body: "看 NewsNow 快照、内容列表，以及本地累计出来的时间线。",
+        promise_title: "你会拿到什么",
+        promise_subtitle: "先把结果承诺讲清楚，再让用户自己决定输入类型。",
+        promise_repo_kicker: "仓库查询",
+        promise_repo_title: "GitHub 历史 + 最新上下文",
+        promise_repo_body: "返回 star 日增曲线、相关 PR / issue / release，并叠加可用性状态。",
+        promise_keyword_kicker: "关键词查询",
+        promise_keyword_title: "NewsNow 快照 + 时间线",
+        promise_keyword_body: "返回平台数、命中条目、最近内容，以及按发布时间回溯出来的热度线。",
+        promise_trace_kicker: "结果状态",
+        promise_trace_title: "不等回填完成，也不隐藏失败",
+        promise_trace_body: "首包先给你当前可用结果，后续回填继续补，失败信息和来源状态都直接展示。",
+      },
+      result: {
+        kicker_repo: "仓库查询",
+        kicker_keyword: "关键词查询",
+        health_ready: "可直接看",
+        health_backfill: "回填中",
+        health_attention: "需要留意",
+        deck_repo: "已拿到 GitHub 历史，当前页有 {count} 条相关内容；再往下看上下文和来源状态。",
+        deck_keyword: "今天快照里有 {items} 条 NewsNow 条目，覆盖 {platforms} 个平台；再往下看时间线是否继续长出来。",
+        meta_period: "周期 {value}",
+        meta_updated: "更新于 {value}",
+        meta_items: "{count} 条相关内容",
+        stat_today: "今日信号",
+        stat_today_repo_detail: "GitHub Star 日增",
+        stat_today_keyword_detail: "NewsNow 今日命中",
+        stat_platforms: "平台覆盖",
+        stat_platforms_detail: "NewsNow 平台数",
+        stat_context: "相关内容",
+        stat_context_detail: "当前结果里的内容条目",
+        stat_timeline: "时间线",
+        stat_timeline_repo_detail: "GitHub 历史点位",
+        stat_timeline_keyword_detail: "关键词热度点位",
+        stat_latest: "最新内容",
+        stat_latest_detail: "当前页共有 {count} 条内容",
+        status_tracking: "追踪状态",
+        status_sources: "来源状态",
+        status_backfill: "回填状态",
+        status_backfill_idle: "本次没有额外后台回填任务。",
+        status_backfill_detail: "{count} 个后台任务",
+        status_sources_ready: "{ready}/{total} 个来源已就绪",
+        status_sources_waiting: "{count} 个来源仍在等待",
+        status_sources_failed: "{count} 个来源有异常",
+        status_sources_na: "当前查询没有可用来源状态。",
+        sources_all_ready: "全部来源已就绪。",
+        trend_title_repo: "GitHub 历史线",
+        trend_title_keyword: "关键词热度线",
       },
       period: { "7d": "7 天", "30d": "30 天", "90d": "90 天", all: "全部" },
       recent: {
@@ -197,6 +271,7 @@
         success: "成功",
         failed: "失败",
         partial: "部分成功",
+        not_applicable: "不适用",
         pending: "等待中",
         running: "运行中",
         ready: "就绪",
@@ -215,21 +290,91 @@
     },
     en: {
       document: { title: "TrendScope" },
+      brand: { note: "Repository trends and keyword timelines." },
       nav: { search: "Search", tracked: "Tracked" },
       hero: {
         runtime: "Python Runtime",
-        headline: "Heat maps lie. Timelines don't.",
-        description: "Search a GitHub repository or a plain keyword, return the first useful answer quickly, and let the rest of the data backfill in public.",
-        scope_title: "Current scope",
-        scope_github: "GitHub history for repository queries",
-        scope_newsnow: "NewsNow snapshot for repositories and plain keywords",
-        scope_tracking: "Track state, content source filters, and async backfill status",
+        headline: "Search a repo, URL, or keyword.",
+        description: "Repository queries return GitHub history and context. Keyword queries return NewsNow snapshot plus timeline.",
+        band_github: "GitHub URL",
+        band_newsnow: "owner/repo",
+        band_backfill: "Plain keyword",
+        scope_title: "Input rules",
+        scope_github: "GitHub URLs are normalized into owner/repo automatically",
+        scope_newsnow: "owner/repo and clear bare repo names prefer the repository path",
+        scope_tracking: "Plain keywords backfill NewsNow snapshot, content, and timeline first",
+        note_fast_title: "What returns first",
+        note_fast_body: "The first response returns current data before every source finishes backfilling.",
+        note_trace_title: "Why the page keeps changing",
+        note_trace_body: "Later backfill keeps filling history, content, and state, and failures stay visible on the page.",
       },
       search: {
         placeholder: "Try openai/openai-python or MCP",
         submit: "Search",
         searching: "Searching...",
         failed: "Search failed.",
+        hint_repo: "GitHub URLs and owner/repo default to full history; bare repo names auto-switch after they resolve as repositories.",
+        hint_keyword: "Plain keywords default to 30 days. The first response lands first; source availability and backfill state update after that.",
+      },
+      starter: {
+        title: "Start with one of these three paths",
+        subtitle: "If you are unsure what to search, open one live example first and then adapt it to your own target.",
+        example_repo_badge: "Bare repo name",
+        example_repo_title: "openclaw",
+        example_repo_body: "Validate automatic repo resolution and jump straight into GitHub history plus fresh repository context.",
+        example_owner_repo_badge: "owner/repo",
+        example_owner_repo_title: "openai/openai-python",
+        example_owner_repo_body: "The standard repository path for star history, PRs, releases, and issues.",
+        example_keyword_badge: "Plain keyword",
+        example_keyword_title: "mcp",
+        example_keyword_body: "See the NewsNow snapshot, recent content items, and the locally accumulated timeline.",
+        promise_title: "What you get back",
+        promise_subtitle: "Set the result contract first, then let the user choose the input type.",
+        promise_repo_kicker: "Repository query",
+        promise_repo_title: "GitHub history + fresh context",
+        promise_repo_body: "Return star delta history, related PR / issue / release items, and explicit availability state.",
+        promise_keyword_kicker: "Keyword query",
+        promise_keyword_title: "NewsNow snapshot + timeline",
+        promise_keyword_body: "Return platform count, hit count, recent content, and a heat line backfilled from publish times.",
+        promise_trace_kicker: "Result state",
+        promise_trace_title: "No waiting for full backfill, no hidden failures",
+        promise_trace_body: "The first response returns current data immediately, later backfill keeps filling in, and failure state stays visible.",
+      },
+      result: {
+        kicker_repo: "Repository query",
+        kicker_keyword: "Keyword query",
+        health_ready: "Ready to read",
+        health_backfill: "Backfilling",
+        health_attention: "Needs attention",
+        deck_repo: "GitHub history is ready. This page already has {count} related item(s); use the sections below for context and source state.",
+        deck_keyword: "Today's snapshot has {items} NewsNow item(s) across {platforms} platform(s); check below to see whether the line is starting to extend.",
+        meta_period: "Period {value}",
+        meta_updated: "Updated {value}",
+        meta_items: "{count} related item(s)",
+        stat_today: "Current signal",
+        stat_today_repo_detail: "GitHub star delta today",
+        stat_today_keyword_detail: "NewsNow hits today",
+        stat_platforms: "Platforms",
+        stat_platforms_detail: "NewsNow platforms",
+        stat_context: "Context",
+        stat_context_detail: "Content items in this result",
+        stat_timeline: "Timeline",
+        stat_timeline_repo_detail: "GitHub history points",
+        stat_timeline_keyword_detail: "Keyword heat points",
+        stat_latest: "Latest item",
+        stat_latest_detail: "{count} content item(s) on page",
+        status_tracking: "Tracking",
+        status_sources: "Sources",
+        status_backfill: "Backfill",
+        status_backfill_idle: "No additional background backfill task for this response.",
+        status_backfill_detail: "{count} background task(s)",
+        status_sources_ready: "{ready}/{total} source(s) ready",
+        status_sources_waiting: "{count} source(s) still waiting",
+        status_sources_failed: "{count} source(s) have issues",
+        status_sources_na: "No active source state for this query.",
+        sources_all_ready: "All active sources are ready.",
+        trend_title_repo: "GitHub history line",
+        trend_title_keyword: "Keyword heat line",
       },
       period: { "7d": "7 days", "30d": "30 days", "90d": "90 days", all: "All" },
       recent: {
@@ -405,6 +550,7 @@
         success: "success",
         failed: "failed",
         partial: "partial",
+        not_applicable: "not applicable",
         pending: "pending",
         running: "running",
         ready: "ready",
@@ -465,6 +611,7 @@
     view: "search",
     query: "",
     period: "30d",
+    periodAuto: true,
     contentSource: "all",
     result: null,
     loading: false,
@@ -502,11 +649,24 @@
     collectRunBackfillNow: true,
   };
 
+  let renderScheduled = false;
+  let renderFrameHandle = 0;
+  let syncedLocale = null;
+
   const elements = {
     searchViewLink: document.querySelector('[data-view-link="search"]'),
     trackedViewLink: document.querySelector('[data-view-link="tracked"]'),
     langZhButton: document.getElementById("lang-zh-button"),
     langEnButton: document.getElementById("lang-en-button"),
+    heroSection: document.getElementById("hero-section"),
+    secondaryGrid: document.getElementById("secondary-grid"),
+    resultSummary: document.getElementById("result-summary"),
+    resultKicker: document.getElementById("result-kicker"),
+    resultHealthChip: document.getElementById("result-health-chip"),
+    resultTitle: document.getElementById("result-title"),
+    resultDeck: document.getElementById("result-deck"),
+    resultMeta: document.getElementById("result-meta"),
+    resultStats: document.getElementById("result-stats"),
     dashboard: document.getElementById("dashboard"),
     emptyState: document.getElementById("empty-state"),
     errorState: document.getElementById("error-state"),
@@ -516,9 +676,12 @@
     contentSourceSelect: document.getElementById("content-source-select"),
     searchButton: document.getElementById("search-button"),
     searchForm: document.getElementById("search-form"),
+    starterGrid: document.getElementById("starter-grid"),
+    starterActions: document.getElementById("starter-actions"),
     recentPanel: document.getElementById("recent-panel"),
     recentSearches: document.getElementById("recent-searches"),
     recentClearButton: document.getElementById("recent-clear-button"),
+    trackedPanel: document.getElementById("tracked-panel"),
     trackedList: document.getElementById("tracked-list"),
     trackedEmptyState: document.getElementById("tracked-empty-state"),
     trackedRefreshButton: document.getElementById("tracked-refresh-button"),
@@ -563,6 +726,10 @@
   };
 
   function syncLocaleChrome() {
+    if (syncedLocale === state.locale) {
+      return;
+    }
+    syncedLocale = state.locale;
     document.documentElement.lang = state.locale === "zh" ? "zh-CN" : "en";
     document.title = t("document.title");
     document.querySelectorAll("[data-i18n]").forEach(function (node) {
@@ -577,20 +744,39 @@
     state.view = window.location.pathname === "/tracked" ? "tracked" : "search";
     const params = new URLSearchParams(window.location.search);
     state.query = params.get("q") || "";
-    state.period = params.get("period") || "30d";
+    state.periodAuto = !params.has("period");
+    state.period = params.get("period") || getAutoPeriodForQuery(state.query);
     state.contentSource = params.get("content_source") || "all";
   }
 
   function syncControls() {
-    elements.queryInput.value = state.query;
-    elements.periodSelect.value = state.period;
-    elements.contentSourceSelect.value = state.contentSource;
-    elements.collectQueryInput.value = state.collectQuery;
-    elements.collectPeriodSelect.value = state.collectPeriod;
-    elements.collectBackfillCheckbox.checked = state.collectRunBackfillNow;
-    elements.providerSmokeQueryInput.value = state.providerSmokeQuery;
-    elements.providerSmokePeriodSelect.value = state.providerSmokePeriod;
-    elements.providerSmokeForceCheckbox.checked = state.providerSmokeForceSearch;
+    if (elements.queryInput.value !== state.query) {
+      elements.queryInput.value = state.query;
+    }
+    if (elements.periodSelect.value !== state.period) {
+      elements.periodSelect.value = state.period;
+    }
+    if (elements.contentSourceSelect.value !== state.contentSource) {
+      elements.contentSourceSelect.value = state.contentSource;
+    }
+    if (elements.collectQueryInput.value !== state.collectQuery) {
+      elements.collectQueryInput.value = state.collectQuery;
+    }
+    if (elements.collectPeriodSelect.value !== state.collectPeriod) {
+      elements.collectPeriodSelect.value = state.collectPeriod;
+    }
+    if (elements.collectBackfillCheckbox.checked !== state.collectRunBackfillNow) {
+      elements.collectBackfillCheckbox.checked = state.collectRunBackfillNow;
+    }
+    if (elements.providerSmokeQueryInput.value !== state.providerSmokeQuery) {
+      elements.providerSmokeQueryInput.value = state.providerSmokeQuery;
+    }
+    if (elements.providerSmokePeriodSelect.value !== state.providerSmokePeriod) {
+      elements.providerSmokePeriodSelect.value = state.providerSmokePeriod;
+    }
+    if (elements.providerSmokeForceCheckbox.checked !== state.providerSmokeForceSearch) {
+      elements.providerSmokeForceCheckbox.checked = state.providerSmokeForceSearch;
+    }
   }
 
   function getBasePath() {
@@ -614,6 +800,35 @@
     state.view = view;
     setUrlState();
     render();
+  }
+
+  function normalizeQuery(value) {
+    return String(value || "").trim();
+  }
+
+  function isExplicitRepoQuery(query) {
+    const normalized = normalizeQuery(query);
+    return GITHUB_URL_RE.test(normalized) || OWNER_REPO_RE.test(normalized);
+  }
+
+  function getAutoPeriodForQuery(query, kindHint) {
+    if (kindHint === "github_repo") {
+      return DEFAULT_REPO_PERIOD;
+    }
+    if (kindHint === "keyword") {
+      return DEFAULT_PERIOD;
+    }
+    return isExplicitRepoQuery(query) ? DEFAULT_REPO_PERIOD : DEFAULT_PERIOD;
+  }
+
+  function shouldAutoExpandRepoHistory(payload, requestedPeriod) {
+    return Boolean(
+      payload &&
+      state.periodAuto &&
+      requestedPeriod === DEFAULT_PERIOD &&
+      payload.keyword &&
+      payload.keyword.kind === "github_repo"
+    );
   }
 
   function loadRecentSearches() {
@@ -974,6 +1189,138 @@
     return t("trend.curve");
   }
 
+  function getDisplayQuery() {
+    if (!state.result) {
+      return "";
+    }
+    return state.result.keyword.kind === "github_repo" ? state.result.keyword.normalized_query : state.result.keyword.raw_query;
+  }
+
+  function formatMetricValue(value) {
+    return value === null || value === undefined ? t("generic.na") : String(value);
+  }
+
+  function trimMessage(value, maxLength) {
+    if (!value) {
+      return "";
+    }
+    const normalized = String(value).replace(/\s+/g, " ").trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+  }
+
+  function getPrimarySeries() {
+    if (!state.result || !state.result.trend.series.length) {
+      return null;
+    }
+    const preferences =
+      state.result.keyword.kind === "github_repo"
+        ? [
+            ["github", "star_delta"],
+            ["newsnow", "matched_item_count"],
+            ["newsnow", "hot_hit_count"],
+          ]
+        : [
+            ["newsnow", "matched_item_count"],
+            ["newsnow", "hot_hit_count"],
+            ["github", "star_delta"],
+          ];
+
+    for (const [source, metric] of preferences) {
+      const match = state.result.trend.series.find((series) => series.source === source && series.metric === metric);
+      if (match) {
+        return match;
+      }
+    }
+
+    return state.result.trend.series[0];
+  }
+
+  function getLatestContentItem() {
+    if (!state.result || !state.result.content_items.length) {
+      return null;
+    }
+    const datedItems = state.result.content_items.filter((item) => item.published_at);
+    if (!datedItems.length) {
+      return state.result.content_items[0];
+    }
+    return datedItems.reduce((latest, item) =>
+      new Date(item.published_at).getTime() > new Date(latest.published_at).getTime() ? item : latest
+    );
+  }
+
+  function getAvailabilityCounts() {
+    if (!state.result) {
+      return { total: 0, ready: 0, waiting: 0, failed: 0 };
+    }
+
+    return Object.values(state.result.availability || {})
+      .filter((value) => !["not_applicable", "skipped"].includes(value))
+      .reduce(
+        (counts, value) => {
+          counts.total += 1;
+          if (["ready", "success", "active"].includes(value)) {
+            counts.ready += 1;
+          } else if (["pending", "running", "partial", "warning"].includes(value)) {
+            counts.waiting += 1;
+          } else {
+            counts.failed += 1;
+          }
+          return counts;
+        },
+        { total: 0, ready: 0, waiting: 0, failed: 0 }
+      );
+  }
+
+  function getToneFromStatus(value) {
+    if (["failed", "misconfigured", "warning", "fallback_only", "mock_only"].includes(value)) {
+      return "attention";
+    }
+    if (["pending", "running", "partial"].includes(value)) {
+      return "backfill";
+    }
+    if (["ready", "success", "active"].includes(value)) {
+      return "ready";
+    }
+    return "neutral";
+  }
+
+  function getResultHealth() {
+    const counts = getAvailabilityCounts();
+    let tone = counts.failed > 0 ? "attention" : counts.waiting > 0 ? "backfill" : "ready";
+    if (!counts.total && state.result && state.result.backfill_job) {
+      tone = getToneFromStatus(state.result.backfill_job.status);
+    }
+    if (tone === "neutral") {
+      tone = "ready";
+    }
+    return {
+      tone,
+      label: t(`result.health_${tone}`),
+      availabilityCounts: counts,
+    };
+  }
+
+  function getAvailabilityDetail(counts) {
+    if (!counts.total) {
+      return t("result.status_sources_na");
+    }
+
+    const details = [];
+    if (counts.failed) {
+      details.push(t("result.status_sources_failed", { count: counts.failed }));
+    }
+    if (counts.waiting) {
+      details.push(t("result.status_sources_waiting", { count: counts.waiting }));
+    }
+    if (!counts.failed && !counts.waiting) {
+      details.push(t("result.sources_all_ready"));
+    }
+    return details.join(" ");
+  }
+
   function sparklineSvg(points) {
     if (!points.length) {
       return "";
@@ -1007,6 +1354,98 @@
     elements.langEnButton.classList.toggle("is-active", state.locale === "en");
   }
 
+  function renderResultSummary() {
+    if (!state.result) {
+      elements.resultSummary.classList.add("hidden");
+      elements.resultStats.innerHTML = "";
+      return;
+    }
+
+    const health = getResultHealth();
+    const primarySeries = getPrimarySeries();
+    const latestContentItem = getLatestContentItem();
+    const resultUpdatedAt = state.result.snapshot.updated_at || state.result.keyword.updated_at;
+    const timelinePoints = primarySeries ? primarySeries.points.length : null;
+    const latestPublishedAt = latestContentItem ? formatDate(latestContentItem.published_at) : t("generic.na");
+    const stats =
+      state.result.keyword.kind === "github_repo"
+        ? [
+            {
+              label: t("result.stat_today"),
+              value: formatMetricValue(state.result.snapshot.github_star_today),
+              detail: t("result.stat_today_repo_detail"),
+            },
+            {
+              label: t("result.stat_context"),
+              value: formatMetricValue(state.result.content_items.length),
+              detail: t("result.stat_context_detail"),
+            },
+            {
+              label: t("result.stat_timeline"),
+              value: formatMetricValue(timelinePoints),
+              detail: t("result.stat_timeline_repo_detail"),
+            },
+            {
+              label: t("result.stat_latest"),
+              value: latestPublishedAt,
+              detail: t("result.stat_latest_detail", { count: state.result.content_items.length }),
+            },
+          ]
+        : [
+            {
+              label: t("result.stat_today"),
+              value: formatMetricValue(state.result.snapshot.newsnow_item_count),
+              detail: t("result.stat_today_keyword_detail"),
+            },
+            {
+              label: t("result.stat_platforms"),
+              value: formatMetricValue(state.result.snapshot.newsnow_platform_count),
+              detail: t("result.stat_platforms_detail"),
+            },
+            {
+              label: t("result.stat_timeline"),
+              value: formatMetricValue(timelinePoints),
+              detail: t("result.stat_timeline_keyword_detail"),
+            },
+            {
+              label: t("result.stat_latest"),
+              value: latestPublishedAt,
+              detail: t("result.stat_latest_detail", { count: state.result.content_items.length }),
+            },
+          ];
+
+    elements.resultKicker.textContent =
+      state.result.keyword.kind === "github_repo" ? t("result.kicker_repo") : t("result.kicker_keyword");
+    elements.resultHealthChip.textContent = health.label;
+    elements.resultHealthChip.dataset.tone = health.tone;
+    elements.resultTitle.textContent = getDisplayQuery();
+    elements.resultDeck.textContent =
+      state.result.keyword.kind === "github_repo"
+        ? t("result.deck_repo", { count: state.result.content_items.length })
+        : t("result.deck_keyword", {
+            items: state.result.snapshot.newsnow_item_count ?? 0,
+            platforms: state.result.snapshot.newsnow_platform_count ?? 0,
+          });
+    elements.resultMeta.innerHTML = [
+      `<span>${translateToken("kind", state.result.keyword.kind)}</span>`,
+      `<span>${t("result.meta_period", { value: formatPeriodLabel(state.period) })}</span>`,
+      `<span>${t("result.meta_updated", { value: formatDate(resultUpdatedAt) })}</span>`,
+      `<span>${t("result.meta_items", { count: state.result.content_items.length })}</span>`,
+    ].join("");
+    elements.resultStats.innerHTML = stats
+      .map(
+        (item) => `
+          <article class="result-stat">
+            <span>${item.label}</span>
+            <strong>${item.value}</strong>
+            <p>${item.detail}</p>
+          </article>
+        `
+      )
+      .join("");
+    elements.resultSummary.classList.remove("hidden");
+  }
+
   function renderStatusRibbon() {
     if (!state.result) {
       elements.statusRibbon.classList.add("hidden");
@@ -1014,26 +1453,53 @@
       return;
     }
 
-    const pills = [];
-    pills.push(`<span class="pill"><strong>${state.result.keyword.normalized_query}</strong></span>`);
-    pills.push(`<span class="pill"><strong>${t("status.kind")}</strong><span>${translateToken("kind", state.result.keyword.kind)}</span></span>`);
-    pills.push(
-      `<span class="pill"><strong>${t("status.track")}</strong><span>${state.result.keyword.is_tracked ? t("status.tracked") : t("status.idle")}</span></span>`
-    );
-    if (state.result.backfill_job) {
-      pills.push(`<span class="pill"><strong>${t("status.job")}</strong><span>${formatStatusLabel(state.result.backfill_job.status)}</span></span>`);
-      state.result.backfill_job.tasks.forEach((task) => {
-        pills.push(
-          `<span class="pill"><strong>${translateToken("source", task.source)}</strong><span>${translateToken("task_type", task.task_type)}</span><span>${formatStatusLabel(task.status)}</span></span>`
-        );
-      });
-    }
+    const health = getResultHealth();
+    const counts = health.availabilityCounts;
+    const diagnostics = [
+      {
+        label: t("result.status_tracking"),
+        value: state.result.keyword.is_tracked ? t("status.tracked") : t("status.idle"),
+        detail: `${translateToken("kind", state.result.keyword.kind)} · ${t("result.meta_period", {
+          value: formatPeriodLabel(state.period),
+        })}`,
+        tone: state.result.keyword.is_tracked ? "ready" : "neutral",
+      },
+      {
+        label: t("result.status_sources"),
+        value: counts.total ? t("result.status_sources_ready", { ready: counts.ready, total: counts.total }) : t("generic.na"),
+        detail: getAvailabilityDetail(counts),
+        tone: counts.total ? health.tone : "neutral",
+      },
+      {
+        label: t("result.status_backfill"),
+        value: state.result.backfill_job ? formatStatusLabel(state.result.backfill_job.status) : t("status_value.idle"),
+        detail: state.result.backfill_job
+          ? state.result.backfill_job.error_message
+            ? trimMessage(state.result.backfill_job.error_message, 180)
+            : t("result.status_backfill_detail", { count: state.result.backfill_job.tasks.length })
+          : t("result.status_backfill_idle"),
+        tone: state.result.backfill_job ? getToneFromStatus(state.result.backfill_job.status) : "neutral",
+      },
+    ];
 
-    elements.statusRibbon.innerHTML = pills.join("");
+    elements.statusRibbon.innerHTML = diagnostics
+      .map(
+        (item) => `
+          <article class="diagnostic-card" data-tone="${item.tone}">
+            <span>${item.label}</span>
+            <strong>${item.value}</strong>
+            <p>${item.detail}</p>
+          </article>
+        `
+      )
+      .join("");
     elements.statusRibbon.classList.remove("hidden");
   }
 
   function renderTrackedKeywords() {
+    const shouldShowTrackedPanel =
+      state.view === "tracked" || state.trackedLoading || Boolean(state.trackedError) || state.trackedKeywords.length > 0;
+    elements.trackedPanel.classList.toggle("hidden", !shouldShowTrackedPanel);
     elements.trackedRefreshButton.disabled = state.trackedLoading || state.trackedBusyIds.length > 0;
     elements.trackedRefreshButton.textContent = state.trackedLoading ? t("action.refreshing") : t("action.refresh");
 
@@ -1084,6 +1550,11 @@
   }
 
   function renderOperations() {
+    if (state.view !== "tracked") {
+      elements.operationsShell.classList.add("hidden");
+      return;
+    }
+
     elements.operationsShell.classList.toggle("hidden", state.view !== "tracked");
     const operationsLoading = state.schedulerLoading || state.providerLoading || state.collectRunsLoading;
     const operationsBusy = operationsLoading || state.collectBusy || state.providerVerifyBusy || state.providerSmokeBusy;
@@ -1341,7 +1812,11 @@
   function renderTrend() {
     const visibleSeries = getVisibleSeries();
 
-    elements.trendHeading.textContent = getHeading();
+    elements.trendHeading.textContent = state.result
+      ? state.result.keyword.kind === "github_repo"
+        ? t("result.trend_title_repo")
+        : t("result.trend_title_keyword")
+      : t("heading.default");
     elements.trendSubtitle.textContent = state.result
       ? t("trend.subtitle", { period: formatPeriodLabel(state.period), count: visibleSeries.length })
       : "";
@@ -1507,13 +1982,21 @@
       .join("");
   }
 
-  function render() {
+  function performRender() {
     syncLocaleChrome();
     syncControls();
     renderNavigation();
     renderRecentSearches();
     renderTrackedKeywords();
     renderOperations();
+    const showGuidance = state.view === "search" && !state.result && !state.loading;
+    elements.starterGrid.classList.toggle("hidden", !showGuidance);
+    elements.heroSection.classList.toggle("hidden", !showGuidance);
+    const showSecondaryGrid =
+      state.view === "tracked" ||
+      !elements.recentPanel.classList.contains("hidden") ||
+      !elements.trackedPanel.classList.contains("hidden");
+    elements.secondaryGrid.classList.toggle("hidden", !showSecondaryGrid);
     elements.searchButton.disabled = state.loading;
     elements.searchButton.textContent = state.loading ? t("search.searching") : t("search.submit");
     elements.trackButton.disabled = state.trackingBusy || !state.result;
@@ -1539,7 +2022,8 @@
     }
 
     if (!state.result && !state.loading) {
-      elements.emptyState.classList.remove("hidden");
+      elements.emptyState.classList.add("hidden");
+      elements.resultSummary.classList.add("hidden");
       elements.dashboard.classList.add("hidden");
       renderStatusRibbon();
       return;
@@ -1547,13 +2031,28 @@
 
     elements.emptyState.classList.add("hidden");
     if (state.result) {
+      renderResultSummary();
       elements.dashboard.classList.remove("hidden");
       renderStatusRibbon();
       renderTrend();
       renderContent();
       renderSnapshot();
       renderAvailability();
+    } else {
+      elements.resultSummary.classList.add("hidden");
     }
+  }
+
+  function render() {
+    if (renderScheduled) {
+      return;
+    }
+    renderScheduled = true;
+    renderFrameHandle = window.requestAnimationFrame(function () {
+      renderScheduled = false;
+      renderFrameHandle = 0;
+      performRender();
+    });
   }
 
   function stopPolling() {
@@ -1689,12 +2188,24 @@
     render();
 
     try {
-      const params = new URLSearchParams({
-        q: state.query,
-        period: state.period,
-        content_source: state.contentSource,
-      });
-      const payload = await request(`/api/search?${params.toString()}`);
+      let payload = null;
+      while (true) {
+        const requestedPeriod = state.period;
+        const params = new URLSearchParams({
+          q: state.query,
+          period: requestedPeriod,
+          content_source: state.contentSource,
+        });
+        payload = await request(`/api/search?${params.toString()}`);
+        if (shouldAutoExpandRepoHistory(payload, requestedPeriod)) {
+          state.period = DEFAULT_REPO_PERIOD;
+          syncControls();
+          setUrlState();
+          continue;
+        }
+        break;
+      }
+
       state.result = payload;
       rememberRecentSearch(payload);
       state.hiddenSeriesKeys = state.hiddenSeriesKeys.filter((key) =>
@@ -1809,9 +2320,37 @@
       render();
       return;
     }
-    state.period = elements.periodSelect.value;
+    state.period = state.periodAuto ? getAutoPeriodForQuery(state.query) : elements.periodSelect.value;
     setUrlState();
     loadSearch();
+  });
+
+  elements.starterActions.addEventListener("click", function (event) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const button = target.closest("[data-starter-query]");
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    const starterQuery = button.dataset.starterQuery;
+    if (!starterQuery) {
+      return;
+    }
+    state.view = "search";
+    state.query = starterQuery;
+    state.period = button.dataset.starterPeriod || DEFAULT_PERIOD;
+    state.periodAuto = false;
+    state.contentSource = "all";
+    syncControls();
+    setUrlState();
+    loadSearch();
+  });
+
+  elements.periodSelect.addEventListener("change", function () {
+    state.period = elements.periodSelect.value;
+    state.periodAuto = false;
   });
 
   elements.contentSourceSelect.addEventListener("change", function () {
@@ -1889,7 +2428,9 @@
     }
     state.query = entry.query;
     state.period = entry.period;
+    state.periodAuto = false;
     state.contentSource = entry.contentSource;
+    syncControls();
     setUrlState();
     loadSearch();
   });
@@ -1919,6 +2460,9 @@
       }
       state.view = "search";
       state.query = getTrackedQuery(entry);
+      state.period = getAutoPeriodForQuery(state.query, entry.kind);
+      state.periodAuto = true;
+      syncControls();
       setUrlState();
       loadSearch();
       return;
