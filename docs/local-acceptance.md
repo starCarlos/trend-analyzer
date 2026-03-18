@@ -55,6 +55,13 @@ backend/.venv/bin/python scripts/local_acceptance.py --skip-ui
 backend/.venv/bin/python scripts/local_acceptance.py
 ```
 
+如果当前环境没有 Playwright，但你要跑内置的 inprocess UI smoke：
+
+```bash
+TRENDSCOPE_UI_DRIVER=inprocess \
+backend/.venv/bin/python scripts/local_acceptance.py
+```
+
 如果 Playwright 装在另一个 Python 环境：
 
 ```bash
@@ -71,7 +78,7 @@ backend/.venv/bin/python scripts/local_acceptance.py \
 - `--require-running`
   - 要求后端必须已在运行，不允许脚本自动启动
 - `--base-url`
-  - 指定验收目标地址，默认 `http://127.0.0.1:8000`
+  - 指定验收目标地址，默认 `http://127.0.0.1:5060`
 - `--backend-python`
   - 指定用于跑单测和启动后端的 Python
 - `--ui-python`

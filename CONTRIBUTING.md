@@ -29,9 +29,9 @@ RELOAD=1 uv run python run_server.py
 
 Useful URLs:
 
-- `http://127.0.0.1:8000/`
-- `http://127.0.0.1:8000/tracked`
-- `http://127.0.0.1:8000/api/health`
+- `http://127.0.0.1:5060/`
+- `http://127.0.0.1:5060/tracked`
+- `http://127.0.0.1:5060/api/health`
 
 ## Development Rules
 
@@ -56,6 +56,7 @@ uv run python -m unittest discover -s tests -v
 
 ```bash
 backend/.venv/bin/python scripts/local_acceptance.py --skip-ui
+TRENDSCOPE_UI_DRIVER=inprocess backend/.venv/bin/python scripts/local_acceptance.py
 backend/.venv/bin/python scripts/local_acceptance.py --skip-ui --json
 ```
 

@@ -105,7 +105,7 @@ uv run python -m app.cli provider-status
 
 启动后访问：
 
-- `http://127.0.0.1:8000/tracked`
+- `http://127.0.0.1:5060/tracked`
 
 页面里的 `Provider preflight` 面板会展示：
 
@@ -127,7 +127,7 @@ uv run python -m app.cli provider-verify --probe-mode real
 ### 8.2 API
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/provider-verify \
+curl -X POST http://127.0.0.1:5060/api/provider-verify \
   -H 'Content-Type: application/json' \
   -d '{"probe_mode":"real"}'
 ```

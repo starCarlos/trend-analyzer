@@ -13,7 +13,7 @@ def _as_bool(value: str | None) -> bool:
 
 def main() -> None:
     host = os.getenv("HOST", "127.0.0.1")
-    port = int(os.getenv("PORT", "8000"))
+    port = int(os.getenv("PORT", "5060"))
     reload = _as_bool(os.getenv("RELOAD"))
     uvicorn.run("app.main:app", host=host, port=port, reload=reload)
 

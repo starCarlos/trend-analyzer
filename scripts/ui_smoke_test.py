@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT_DIR / "backend"
-DEFAULT_BASE_URL = os.environ.get("TRENDSCOPE_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+DEFAULT_BASE_URL = os.environ.get("TRENDSCOPE_BASE_URL", "http://127.0.0.1:5060").rstrip("/")
 DEFAULT_OUTPUT_DIR = Path(os.environ.get("TRENDSCOPE_SMOKE_DIR", "/tmp"))
 DEFAULT_REPO_QUERY = "openai/openai-python"
 DEFAULT_KEYWORD_QUERY = "mcp"

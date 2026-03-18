@@ -10,7 +10,7 @@ FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:5060
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 
 COPY --from=deps /app/node_modules ./node_modules

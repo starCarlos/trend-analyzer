@@ -26,10 +26,10 @@
 
 ## 3. 本地验收前置结果
 
-- 是否先运行 `scripts/local_acceptance.py`：
-- 命令：
-- 结果：`通过` / `失败` / `未执行`
-- 备注：
+- 是否先运行 `scripts/local_acceptance.py`：`是`
+- 命令：`backend/.venv/bin/python scripts/local_acceptance.py --base-url http://127.0.0.1:5060 --backend-python backend/.venv/bin/python --ui-python backend/.venv/bin/python --startup-timeout 30.0 --request-timeout 2.0 --json --skip-ui`
+- 结果：`通过`
+- 备注：[acceptance] Local acceptance passed
 
 ## 4. Provider 预检结果
 
@@ -112,7 +112,7 @@ backend/.venv/bin/python -m app.cli provider-verify --probe-mode real
     "attempted_provider": "real",
     "status": "success",
     "endpoint": "https://api.github.com/rate_limit",
-    "message": "GitHub 在线探测成功。rate limit remaining=6, limit=60."
+    "message": "GitHub 在线探测成功。rate limit remaining=55, limit=60."
   },
   "newsnow": {
     "source": "newsnow",
@@ -198,7 +198,7 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
       "attempted_provider": "real",
       "status": "success",
       "endpoint": "https://api.github.com/rate_limit",
-      "message": "GitHub 在线探测成功。rate limit remaining=6, limit=60."
+      "message": "GitHub 在线探测成功。rate limit remaining=55, limit=60."
     },
     "newsnow": {
       "source": "newsnow",
@@ -216,7 +216,7 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
     "keyword_kind": "github_repo",
     "normalized_query": "openai/openai-python",
     "trend_series_count": 2,
-    "content_item_count": 18,
+    "content_item_count": 20,
     "availability": {
       "github_history": "ready",
       "newsnow_snapshot": "ready"
@@ -233,23 +233,23 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
 
 ### 7.1 GitHub 项目搜索
 
-- 验证地址：http://127.0.0.1:8000/?q=openai%2Fopenai-python&period=30d
+- 验证地址：http://127.0.0.1:5060/?q=openai%2Fopenai-python&period=30d
 - 是否可打开：`是`
 - 是否看到今日快照：`是`
 - 是否看到 GitHub 内容流：`是`
 - 是否看到趋势图：`是`
 - `Track/Untrack` 是否正常：`是`
-- 截图路径：/tmp/trendscope-real-acceptance/trendscope-search-smoke-evidence.json
-- 备注：自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance/trendscope-search-smoke-evidence.json
+- 截图路径：/tmp/trendscope-real-acceptance-5060/trendscope-search-smoke-evidence.json
+- 备注：自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance-5060/trendscope-search-smoke-evidence.json
 
 ### 7.2 普通关键词搜索
 
-- 验证地址：http://127.0.0.1:8000/?q=mcp&period=30d
+- 验证地址：http://127.0.0.1:5060/?q=mcp&period=30d
 - 是否看到 NewsNow 快照：`是`
 - 是否看到内容列表：`是`
 - 是否看到累计提示或累计曲线：`是`
-- 截图路径：/tmp/trendscope-real-acceptance/trendscope-keyword-smoke-evidence.json
-- 备注：自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance/trendscope-keyword-smoke-evidence.json
+- 截图路径：/tmp/trendscope-real-acceptance-5060/trendscope-keyword-smoke-evidence.json
+- 备注：自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance-5060/trendscope-keyword-smoke-evidence.json
 
 ### 7.3 `/tracked` 页
 
@@ -257,8 +257,8 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
 - `Verify real` 是否正常：`是`
 - `Run smoke` 是否正常：`是`
 - 是否看到 collect runs：`是`
-- 截图路径：/tmp/trendscope-real-acceptance/trendscope-tracked-smoke-evidence.json
-- 备注：Triggered 1 collection run(s). Inprocess 取证仅重放当前 repo query，避免全量 tracked collection 拖慢验收。；自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance/trendscope-tracked-smoke-evidence.json
+- 截图路径：/tmp/trendscope-real-acceptance-5060/trendscope-tracked-smoke-evidence.json
+- 备注：Triggered 1 collection run(s). Inprocess 取证仅重放当前 repo query，避免全量 tracked collection 拖慢验收。；自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance-5060/trendscope-tracked-smoke-evidence.json
 
 ## 8. 追踪与采集结果
 
@@ -272,7 +272,7 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
 
 | 项目 | 结果 | 备注 |
 |---|---|---|
-| 可以从空库启动 | 通过 | 临时空库启动成功；db=/tmp/trendscope-empty-startup-ca7f9d3b1b0b42428d49fb404bc22196.db；health.env=empty_db_probe；provider_mode=mock |
+| 可以从空库启动 | 通过 | 临时空库启动成功；db=/tmp/trendscope-empty-startup-abedabb6b0974a43bf8d922ab61080d7.db；health.env=empty_db_probe；provider_mode=mock |
 | GitHub 项目首次搜索能完成冷启动并看到历史图 | 通过 | 搜索页关键元素齐全，Track/Untrack 可切换。 |
 | 普通关键词首次搜索能看到 NewsNow 快照和内容列表 | 通过 | 普通关键词搜索页关键元素齐全。 |
 | 加入追踪后，定时任务能持续写入新点位 | 部分通过 | 已自动触发 `Collect tracked`，但本次未观察到新增 collect runs；scheduler 持续写入仍需人工观察。 |

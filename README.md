@@ -37,9 +37,9 @@ RELOAD=1 uv run python run_server.py
 
 Open these URLs after startup:
 
-- Search page: `http://127.0.0.1:8000/`
-- Tracked page: `http://127.0.0.1:8000/tracked`
-- Health check: `http://127.0.0.1:8000/api/health`
+- Search page: `http://127.0.0.1:5060/`
+- Tracked page: `http://127.0.0.1:5060/tracked`
+- Health check: `http://127.0.0.1:5060/api/health`
 
 ### Alternative Start
 
@@ -99,6 +99,7 @@ uv run python -m app.cli collect-tracked
 
 ```bash
 backend/.venv/bin/python scripts/local_acceptance.py --skip-ui
+TRENDSCOPE_UI_DRIVER=inprocess backend/.venv/bin/python scripts/local_acceptance.py
 backend/.venv/bin/python scripts/local_acceptance.py --ui-python /path/to/python-with-playwright
 backend/.venv/bin/python scripts/local_acceptance.py --skip-ui --json
 ```

@@ -11,7 +11,12 @@ import sys
 from urllib.parse import urlencode
 from uuid import uuid4
 
-from local_acceptance import parse_base_url, stop_backend, wait_for_health
+from local_acceptance import (
+    build_parser as build_local_acceptance_parser,
+    parse_base_url,
+    stop_backend,
+    wait_for_health,
+)
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -19,6 +24,7 @@ BACKEND_DIR = ROOT_DIR / "backend"
 ENV_PATH = BACKEND_DIR / ".env"
 DEFAULT_RECORD_DIR = ROOT_DIR / "docs" / "acceptance-records"
 UI_SMOKE_SCRIPT = ROOT_DIR / "scripts" / "ui_smoke_test.py"
+DEFAULT_BASE_URL = build_local_acceptance_parser().get_default("base_url")
 
 
 def default_backend_python() -> str:
@@ -78,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--probe-mode", choices=["current", "real"], default="real")
     parser.add_argument("--force-search", action="store_true")
     parser.add_argument("--run-ui", action="store_true")
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--screenshots-dir")
     parser.add_argument("--skip-status", action="store_true")
     parser.add_argument("--skip-verify", action="store_true")

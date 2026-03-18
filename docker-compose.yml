@@ -5,10 +5,10 @@ services:
     environment:
       APP_ENV: production
       DATABASE_URL: sqlite:///./data/trendscope.db
-      FRONTEND_ORIGIN: http://localhost:8000
+      FRONTEND_ORIGIN: http://localhost:5060
       PROVIDER_MODE: mock
     ports:
-      - "8000:8000"
+      - "5060:5060"
     volumes:
       - backend-data:/app/data
 

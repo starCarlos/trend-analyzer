@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--proxy", default="")
     parser.add_argument("--backend-python", default=build_local_acceptance_parser().get_default("backend_python"))
     parser.add_argument("--ui-python", default=sys.executable)
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--base-url", default=build_local_acceptance_parser().get_default("base_url"))
     parser.add_argument("--startup-timeout", type=float, default=30.0)
     parser.add_argument("--request-timeout", type=float, default=2.0)
     parser.add_argument("--skip-local", action="store_true")

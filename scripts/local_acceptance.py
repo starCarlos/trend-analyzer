@@ -20,6 +20,7 @@ LOG_STREAM = sys.stdout
 TEST_ENV_OVERRIDES = {
     "PROVIDER_MODE": "mock",
 }
+DEFAULT_BASE_URL = os.environ.get("TRENDSCOPE_BASE_URL", "http://127.0.0.1:5060")
 
 
 def default_backend_python() -> str:
@@ -35,7 +36,7 @@ def default_backend_python() -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="TrendScope local acceptance runner")
-    parser.add_argument("--base-url", default=os.environ.get("TRENDSCOPE_BASE_URL", "http://127.0.0.1:8000"))
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--backend-python", default=default_backend_python())
     parser.add_argument("--ui-python", default=sys.executable)
     parser.add_argument("--startup-timeout", type=float, default=30.0)
@@ -172,6 +173,9 @@ def stop_backend(process: subprocess.Popen[str] | None) -> None:
 def ensure_current_ui_python_has_playwright(ui_python: str, skip_ui: bool) -> None:
     if skip_ui:
         return
+    ui_driver = os.environ.get("TRENDSCOPE_UI_DRIVER", "auto").strip().lower()
+    if ui_driver == "inprocess":
+        return
     if Path(ui_python).resolve() != Path(sys.executable).resolve():
         return
     try:
@@ -179,7 +183,7 @@ def ensure_current_ui_python_has_playwright(ui_python: str, skip_ui: bool) -> No
     except ImportError as exc:
         raise RuntimeError(
             "Playwright is not installed in the current Python environment. "
-            "Install it there, pass --ui-python, or use --skip-ui."
+            "Install it there, pass --ui-python, set TRENDSCOPE_UI_DRIVER=inprocess, or use --skip-ui."
         ) from exc
 
 

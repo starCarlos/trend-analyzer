@@ -110,7 +110,7 @@ RELOAD=1 backend/.venv/bin/python run_server.py
 
 浏览器打开：
 
-- `http://127.0.0.1:8000/?q=openai/openai-python&period=30d`
+- `http://127.0.0.1:5060/?q=openai/openai-python&period=30d`
 
 人工确认：
 
@@ -124,7 +124,7 @@ RELOAD=1 backend/.venv/bin/python run_server.py
 
 浏览器打开：
 
-- `http://127.0.0.1:8000/?q=mcp&period=30d`
+- `http://127.0.0.1:5060/?q=mcp&period=30d`
 
 人工确认：
 
@@ -137,7 +137,7 @@ RELOAD=1 backend/.venv/bin/python run_server.py
 
 浏览器打开：
 
-- `http://127.0.0.1:8000/tracked`
+- `http://127.0.0.1:5060/tracked`
 
 人工确认：
 
