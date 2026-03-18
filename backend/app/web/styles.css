@@ -1970,6 +1970,86 @@ body[data-view="tracked"] .ops-guide-grid {
   fill: rgba(215, 154, 58, 0.16);
 }
 
+.sparkline-node {
+  cursor: pointer;
+}
+
+.sparkline-hit {
+  fill: transparent;
+}
+
+.sparkline-guide,
+.sparkline-halo,
+.sparkline-popover {
+  opacity: 0;
+  transition: opacity 140ms ease;
+  pointer-events: none;
+}
+
+.sparkline-guide {
+  stroke: rgba(255, 244, 230, 0.24);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 6;
+}
+
+.sparkline-halo {
+  fill: rgba(215, 154, 58, 0.14);
+  stroke: rgba(255, 244, 230, 0.24);
+  stroke-width: 1;
+}
+
+.sparkline-dot {
+  fill: rgba(255, 244, 230, 0.94);
+  stroke: rgba(215, 154, 58, 0.9);
+  stroke-width: 2;
+  opacity: 0;
+  transition: transform 140ms ease, fill 140ms ease, stroke 140ms ease;
+  transform-origin: center;
+}
+
+.sparkline-popover-shell {
+  fill: rgba(18, 13, 10, 0.92);
+  stroke: rgba(255, 244, 230, 0.12);
+  stroke-width: 1;
+}
+
+.sparkline-popover-card {
+  display: grid;
+  gap: 3px;
+  height: 100%;
+  padding: 11px 13px 10px;
+  color: #fff8ef;
+}
+
+.sparkline-popover-date {
+  color: rgba(255, 244, 230, 0.62);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.sparkline-popover-value {
+  font-family: "Iowan Old Style", "Book Antiqua", "Palatino Linotype", serif;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.sparkline-node:hover .sparkline-guide,
+.sparkline-node:hover .sparkline-halo,
+.sparkline-node:hover .sparkline-popover {
+  opacity: 1;
+}
+
+.sparkline-node:hover .sparkline-dot {
+  opacity: 1;
+  fill: #ffffff;
+  stroke: rgba(255, 196, 96, 0.96);
+  transform: scale(1.16);
+}
+
 .sparkline-axis {
   display: flex;
   justify-content: space-between;

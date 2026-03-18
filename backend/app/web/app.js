@@ -1120,6 +1120,41 @@
     });
   }
 
+  function formatChartTimestamp(value) {
+    if (!value) {
+      return t("generic.na");
+    }
+    return new Date(value).toLocaleString(state.locale === "zh" ? "zh-CN" : "en-US", {
+      year: "numeric",
+      month: state.locale === "zh" ? "numeric" : "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function formatChartValue(value) {
+    if (value === null || value === undefined) {
+      return t("generic.na");
+    }
+    return new Intl.NumberFormat(state.locale === "zh" ? "zh-CN" : "en-US", {
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
   function formatDuration(value) {
     if (value === null || value === undefined) {
       return t("generic.na");
@@ -1573,19 +1608,53 @@
     const min = Math.min.apply(null, values);
     const max = Math.max.apply(null, values);
     const range = max - min || 1;
-    const path = points
-      .map((point, index) => {
-        const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
-        const y = height - ((point.value - min) / range) * (height - 10) - 5;
-        return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-      })
+    const geometry = points.map((point, index) => {
+      const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
+      const y = height - ((point.value - min) / range) * (height - 10) - 5;
+      return { ...point, x, y };
+    });
+    const path = geometry
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
       .join(" ");
     const area = `${path} L ${width} ${height} L 0 ${height} Z`;
+    const pointStep = points.length > 1 ? width / (points.length - 1) : width;
+    const hitRadius = Math.max(8, Math.min(18, pointStep / 2));
+    const dotRadius = points.length === 1 ? 4.5 : 3.2;
+    const bubbleWidth = width > 500 ? 168 : 154;
+    const bubbleHeight = 54;
+    const pointMarkup = geometry
+      .map((point) => {
+        const bubbleX = clamp(point.x - bubbleWidth / 2, 8, width - bubbleWidth - 8);
+        const bubbleY = clamp(point.y - bubbleHeight - 18, 6, height - bubbleHeight - 8);
+        const bubbleDate = escapeHtml(formatChartTimestamp(point.bucket_start));
+        const bubbleValue = escapeHtml(formatChartValue(point.value));
+        return `
+          <g class="sparkline-node" transform="translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})">
+            <line class="sparkline-guide" x1="0" y1="0" x2="0" y2="${(height - point.y - 4).toFixed(2)}"></line>
+            <g class="sparkline-popover" transform="translate(${(bubbleX - point.x).toFixed(2)} ${(bubbleY - point.y).toFixed(2)})">
+              <rect class="sparkline-popover-shell" width="${bubbleWidth}" height="${bubbleHeight}" rx="16" ry="16"></rect>
+              <foreignObject width="${bubbleWidth}" height="${bubbleHeight}">
+                <div class="sparkline-popover-card" xmlns="http://www.w3.org/1999/xhtml">
+                  <span class="sparkline-popover-date">${bubbleDate}</span>
+                  <strong class="sparkline-popover-value">${bubbleValue}</strong>
+                </div>
+              </foreignObject>
+            </g>
+            <circle class="sparkline-halo" r="${(dotRadius + 4.5).toFixed(2)}"></circle>
+            <circle class="sparkline-hit" r="${hitRadius.toFixed(2)}"></circle>
+            <circle class="sparkline-dot" r="${dotRadius.toFixed(2)}"></circle>
+          </g>
+        `;
+      })
+      .join("");
     return `
       <div class="sparkline-wrap">
-        <svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+        <svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
           <path class="sparkline-area" d="${area}"></path>
           <path class="sparkline-path" d="${path}"></path>
+          <g class="sparkline-points">
+            ${pointMarkup}
+          </g>
         </svg>
         ${buildSparklineAxis(points)}
       </div>

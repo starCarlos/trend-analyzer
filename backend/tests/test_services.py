@@ -74,6 +74,7 @@ class ServiceTestCase(unittest.TestCase):
     def test_web_ui_contains_recent_tracked_collect_and_provider_panels(self) -> None:
         html = (web_dir / "index.html").read_text(encoding="utf-8")
         app_js = (web_dir / "app.js").read_text(encoding="utf-8")
+        styles = (web_dir / "styles.css").read_text(encoding="utf-8")
         self.assertIn('<html lang="zh-CN">', html)
         self.assertIn('id="recent-panel"', html)
         self.assertIn('id="tracked-panel"', html)
@@ -92,6 +93,8 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIn('data-locale-switch="zh"', html)
         self.assertIn('data-locale-switch="en"', html)
         self.assertIn("return payload?.providers || [];", app_js)
+        self.assertIn("function formatChartTimestamp(value)", app_js)
+        self.assertIn(".sparkline-dot", styles)
 
     def test_provider_status_reports_mock_mode(self) -> None:
         payload = get_provider_status(
