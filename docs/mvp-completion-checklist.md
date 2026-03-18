@@ -61,6 +61,7 @@ PRD 要求：
 当前实现：
 
 - GitHub URL、`owner/repo`、普通关键词都支持
+- 对明显对应 GitHub 仓库的裸名称，会自动提升为仓库查询，例如 `openclaw -> openclaw/openclaw`
 - 前端空输入不会提交
 - GitHub URL 会规范化为 `owner/repo`
 - 浏览器本地会缓存最近搜索 10 条

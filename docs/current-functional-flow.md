@@ -1,7 +1,7 @@
 # TrendScope 当前功能流程
 
 > 基于当前代码实现整理，而不是基于 PRD 目标态整理。
-> 更新时间：2026-03-17
+> 更新时间：2026-03-18
 
 ## 1. 文档目的
 
@@ -142,11 +142,12 @@
 
 ### 6.1 输入分类
 
-搜索输入先经过 `parse_search_query()` 规范化，分成两类：
+搜索输入会先经过 `parse_search_query()` 做基础规范化；对看起来像仓库名的单词，还会经过 `resolve_search_query()` 尝试补充解析，最终分成两类：
 
 - `github_repo`
   - GitHub URL
   - `owner/repo`
+  - 单个裸仓库名在 GitHub 仓库搜索中命中稳定目标时，会提升成真实仓库，例如 `openclaw -> openclaw/openclaw`
 - `keyword`
   - 其他普通文本
 
@@ -155,6 +156,7 @@
 - 去掉首尾空格
 - 折叠连续空白
 - GitHub URL 转成小写 `owner/repo`
+- 单个裸仓库名只有在 GitHub 搜索结果足够明确时才会转成小写 `owner/repo`
 - 普通关键词转成小写 `normalized_query`
 
 ### 6.2 搜索入口调用链
@@ -165,7 +167,7 @@
 request -> search_keyword()
         -> parse_period()
         -> parse_content_source()
-        -> parse_search_query()
+        -> resolve_search_query()
         -> get_or_create_keyword()
         -> _maybe_schedule_backfill()
         -> 读取 trend_points / content_items
@@ -678,6 +680,7 @@ CLI 是当前最完整的“无需前端即可操作系统”的入口。
 
 - 健康检查
 - GitHub URL 规范化
+- 裸仓库名自动解析到 GitHub repository
 - repository 搜索 + 回填
 - Track/Untrack
 - collector 路径
@@ -697,8 +700,6 @@ CLI 是当前最完整的“无需前端即可操作系统”的入口。
 - 事件标注
 - 数据导出
 - 推送通知
-- 完整真实 provider 联调验证
-  `real` 模式代码已存在，但当前环境下未做在线验证
 
 ## 15. 当前推荐使用方式
 
