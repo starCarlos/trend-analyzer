@@ -1,9 +1,17 @@
+import os
+from pathlib import Path
+import tempfile
 import unittest
 from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi import BackgroundTasks
+
+
+TEST_DATABASE_PATH = Path(tempfile.gettempdir()) / f"trendscope-test-services-{uuid4().hex}.db"
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{TEST_DATABASE_PATH}")
+os.environ.setdefault("APP_ENV", "test")
 
 from app.config import Settings
 from app.database import Base, SessionLocal, engine
@@ -62,6 +70,7 @@ class ServiceTestCase(unittest.TestCase):
 
     def test_web_ui_contains_recent_tracked_collect_and_provider_panels(self) -> None:
         html = (web_dir / "index.html").read_text(encoding="utf-8")
+        self.assertIn('<html lang="zh-CN">', html)
         self.assertIn('id="recent-panel"', html)
         self.assertIn('id="tracked-panel"', html)
         self.assertIn('id="operations-shell"', html)
@@ -73,6 +82,8 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIn('id="provider-smoke-query-input"', html)
         self.assertIn('id="provider-smoke-button"', html)
         self.assertIn('id="provider-smoke-grid"', html)
+        self.assertIn('data-locale-switch="zh"', html)
+        self.assertIn('data-locale-switch="en"', html)
 
     def test_provider_status_reports_mock_mode(self) -> None:
         payload = get_provider_status(

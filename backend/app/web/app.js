@@ -1,9 +1,459 @@
 (function () {
   const RECENT_SEARCHES_KEY = "trendscope.recent-searches.v1";
+  const LOCALE_KEY = "trendscope.locale.v1";
   const MAX_RECENT_SEARCHES = 10;
   const DEFAULT_PROVIDER_SMOKE_QUERY = "openai/openai-python";
+  const DEFAULT_LOCALE = "zh";
+  const MESSAGES = {
+    zh: {
+      document: { title: "TrendScope" },
+      nav: { search: "搜索", tracked: "追踪" },
+      hero: {
+        runtime: "Python 运行时",
+        headline: "热榜会骗人，时间线不会。",
+        description: "搜索 GitHub 仓库或普通关键词，先尽快返回第一批有用结果，再把剩余数据公开回填。",
+        scope_title: "当前范围",
+        scope_github: "GitHub 历史趋势，仅用于仓库类查询",
+        scope_newsnow: "NewsNow 快照，覆盖仓库和普通关键词",
+        scope_tracking: "追踪状态、来源筛选和异步回填状态",
+      },
+      search: {
+        placeholder: "试试 openai/openai-python 或 MCP",
+        submit: "搜索",
+        searching: "搜索中...",
+        failed: "搜索失败。",
+      },
+      period: { "7d": "7 天", "30d": "30 天", "90d": "90 天", all: "全部" },
+      recent: {
+        title: "最近搜索",
+        subtitle: "仅保存在当前浏览器，最多 10 条。",
+        clear: "清空",
+      },
+      tracked: {
+        title: "追踪列表",
+        subtitle: "FastAPI 直接提供的独立追踪页也复用这组数据。",
+        empty: "还没有追踪词。先搜索，再把结果加入观察列表。",
+        loading: "正在从本地数据库读取追踪词。",
+        updated: "更新于 {value}",
+        saving: "保存中...",
+        untrack: "取消追踪",
+        update_error: "更新追踪词失败。",
+      },
+      action: {
+        refresh: "刷新",
+        refreshing: "刷新中...",
+        working: "处理中...",
+        save: "保存中...",
+      },
+      scheduler: {
+        title: "调度器控制",
+        subtitle: "查看内置采集循环，并按需刷新状态快照。",
+        loading: "正在从后端加载调度器快照。",
+        unavailable: "调度器快照暂时不可用。",
+        enabled: "启用状态",
+        worker: "工作线程",
+        interval: "执行间隔",
+        last_status: "最近状态",
+        last_started: "最近启动",
+        backfill: "回填策略",
+        enabled_detail: "由 SCHEDULER_ENABLED 控制。",
+        worker_detail: "当前周期 {period}。",
+        interval_detail: "初始延迟 {value}。",
+        last_status_detail: "上次触发了 {count} 个关键词。",
+        last_started_detail: "最近结束时间 {value}。",
+        backfill_detail: "累计执行 {count} 轮。",
+      },
+      provider: {
+        preflight_title: "Provider 预检",
+        preflight_subtitle: "切到 real 或 auto 之前，先检查本地配置。",
+        verify: "验证真实源",
+        verifying: "验证中...",
+        smoke_placeholder: "Smoke 查询，例如 openai/openai-python",
+        force_search: "强制真实搜索",
+        run_smoke: "运行 smoke",
+        running_smoke: "运行中...",
+        loading_summary: "正在从后端加载 provider 预检结果。",
+        unavailable_summary: "Provider 预检暂时不可用。",
+        verify_error: "验证 provider 连通性失败。",
+        smoke_error: "运行 provider smoke 失败。",
+        mode: "模式",
+        real_configured: "真实源配置",
+        issues: "问题",
+        notes: "说明",
+        probe: "探测",
+        search: "搜索",
+        availability: "数据可用性",
+        next_steps: "后续动作",
+        guide: "指引",
+        no_endpoint: "无 endpoint",
+        smoke_search_title: "Smoke 搜索",
+        smoke_search_subtitle: "{query} · {period}",
+        smoke_feedback: "搜索 {search_status}。探测模式 {probe_mode}。force_search {force_search}。",
+        normalized: "归一化 {value}",
+        trend_series: "趋势序列 {count}",
+        content_items: "内容条目 {count}",
+        force_search_label: "force_search {value}",
+        next_steps_title: "Smoke 后续动作",
+        next_steps_subtitle: "来自后端 smoke runner 的操作清单。",
+        next_steps_empty: "当前 smoke 输出没有额外动作项。",
+      },
+      collect: {
+        title: "手动采集",
+        subtitle: "触发追踪刷新，或对指定 query 运行一次性采集。",
+        query_placeholder: "可选：指定 query 做一次性 collect",
+        backfill_now: "立即执行回填",
+        tracked: "采集追踪列表",
+        query: "采集该查询",
+        query_required: "先输入一个 query，再运行一次性采集。",
+        feedback: "已触发 {count} 次采集任务。",
+        trigger_error: "触发采集失败。",
+        runs_title: "最近采集记录",
+        runs_subtitle: "后端 scheduler 和 backfill worker 最近的写入尝试。",
+        loading_runs: "正在加载最近的采集记录。",
+        no_runs: "还没有采集记录。",
+        no_message: "暂无附加信息。",
+        global_run: "全局任务",
+        keyword_ref: "关键词 #{id}",
+        status: "状态 {value}",
+        tracked_state: "已追踪",
+        untracked_state: "未追踪",
+      },
+      loading: {
+        title: "正在加载搜索框架",
+        subtitle: "首包应该先返回，历史回填随后完成。",
+      },
+      empty: {
+        default: "优先使用 GitHub 直接路径开始，首次结果更强。普通关键词也能查，但历史需要反复采集后才会形成。",
+      },
+      content: {
+        title: "相关内容流",
+        subtitle: "与当前查询关联的最近条目。",
+        no_items: "还没有 {source}内容。等该来源可用后，采集会把这里补齐。",
+        no_summary: "暂时没有摘要。",
+      },
+      content_source: {
+        all: "全部来源",
+        newsnow: "NewsNow",
+        github: "GitHub",
+      },
+      snapshot: {
+        title: "今日快照",
+        subtitle: "只展示直接来源事实，不做综合评分。",
+        github_delta: "GitHub Star 增量",
+        newsnow_platforms: "NewsNow 平台数",
+        newsnow_items: "NewsNow 条目数",
+        updated_at: "最近更新时间",
+      },
+      availability: {
+        title: "数据可用性",
+        subtitle: "前端把部分成功视为正常状态。",
+        backfill_job: "回填任务",
+        no_detail: "暂无更多细节。",
+      },
+      status: {
+        kind: "类型",
+        track: "追踪",
+        job: "任务",
+        tracked: "已追踪",
+        idle: "未追踪",
+      },
+      kind: {
+        github_repo: "GitHub 仓库",
+        keyword: "关键词",
+      },
+      heading: {
+        default: "搜索一个仓库或关键词。",
+        repo: "先看仓库信号，再看上下文。",
+        keyword: "先看关键词快照，再开始积累。",
+      },
+      trend: {
+        subtitle: "周期 {period}。当前可见 {count} 个来源。",
+        no_history: "还没有本地关键词历史。第一条 NewsNow 快照会从今天开始积累。",
+        one_point: "积累从今天开始。当前已有 1 个快照点位，后续采集会继续延长曲线。",
+        curve: "关键词趋势图基于本地累计的 NewsNow 日快照曲线。",
+        no_visible: "当前还没有可见趋势线。普通关键词会先从今日快照起步，后续采集会继续补齐曲线。",
+        points: "{count} 个点位",
+      },
+      source: { github: "GitHub", newsnow: "NewsNow" },
+      task_type: { history: "历史", content: "内容", snapshot: "快照" },
+      source_type: {
+        github_repo: "GitHub 仓库",
+        keyword: "关键词",
+      },
+      metric_label: {
+        hot_hit_count: "热度条目",
+        star_delta: "Star 增量",
+      },
+      availability_key: {
+        github_history: "GitHub 历史",
+        github_content: "GitHub 内容",
+        newsnow_snapshot: "NewsNow 快照",
+      },
+      status_value: {
+        success: "成功",
+        failed: "失败",
+        partial: "部分成功",
+        pending: "等待中",
+        running: "运行中",
+        ready: "就绪",
+        skipped: "跳过",
+        warning: "警告",
+        misconfigured: "配置缺失",
+        fallback_only: "仅回退",
+        mock_only: "仅 mock",
+        active: "活跃",
+        idle: "空闲",
+      },
+      generic: { na: "N/A", yes: "是", no: "否", milliseconds: "毫秒" },
+      ribbon: {
+        source: "{source} {task}",
+      },
+    },
+    en: {
+      document: { title: "TrendScope" },
+      nav: { search: "Search", tracked: "Tracked" },
+      hero: {
+        runtime: "Python Runtime",
+        headline: "Heat maps lie. Timelines don't.",
+        description: "Search a GitHub repository or a plain keyword, return the first useful answer quickly, and let the rest of the data backfill in public.",
+        scope_title: "Current scope",
+        scope_github: "GitHub history for repository queries",
+        scope_newsnow: "NewsNow snapshot for repositories and plain keywords",
+        scope_tracking: "Track state, content source filters, and async backfill status",
+      },
+      search: {
+        placeholder: "Try openai/openai-python or MCP",
+        submit: "Search",
+        searching: "Searching...",
+        failed: "Search failed.",
+      },
+      period: { "7d": "7 days", "30d": "30 days", "90d": "90 days", all: "All" },
+      recent: {
+        title: "Recent searches",
+        subtitle: "Stored locally in this browser, up to 10 entries.",
+        clear: "Clear",
+      },
+      tracked: {
+        title: "Tracked watchlist",
+        subtitle: "The FastAPI-served /tracked page reuses the same dataset.",
+        empty: "No tracked keyword yet. Search first, then promote the result into the watchlist.",
+        loading: "Loading tracked keywords from the local database.",
+        updated: "Updated {value}",
+        saving: "Saving...",
+        untrack: "Untrack",
+        update_error: "Failed to update tracked keyword.",
+      },
+      action: {
+        refresh: "Refresh",
+        refreshing: "Refreshing...",
+        working: "Working...",
+        save: "Saving...",
+      },
+      scheduler: {
+        title: "Scheduler control",
+        subtitle: "Inspect the built-in collector loop and refresh its snapshot on demand.",
+        loading: "Loading scheduler snapshot from the backend.",
+        unavailable: "Scheduler snapshot is not available yet.",
+        enabled: "Enabled",
+        worker: "Worker",
+        interval: "Interval",
+        last_status: "Last status",
+        last_started: "Last started",
+        backfill: "Backfill",
+        enabled_detail: "Controlled by SCHEDULER_ENABLED.",
+        worker_detail: "Period {period}.",
+        interval_detail: "Initial delay {value}.",
+        last_status_detail: "Triggered {count} keyword(s) last time.",
+        last_started_detail: "Last finished {value}.",
+        backfill_detail: "Iterations {count}.",
+      },
+      provider: {
+        preflight_title: "Provider preflight",
+        preflight_subtitle: "Local configuration check before you switch to real or auto provider mode.",
+        verify: "Verify real",
+        verifying: "Verifying...",
+        smoke_placeholder: "Smoke query, e.g. openai/openai-python",
+        force_search: "Force real search",
+        run_smoke: "Run smoke",
+        running_smoke: "Running...",
+        loading_summary: "Loading provider preflight from the backend.",
+        unavailable_summary: "Provider preflight is not available yet.",
+        verify_error: "Failed to verify provider connectivity.",
+        smoke_error: "Failed to run provider smoke.",
+        mode: "Mode",
+        real_configured: "Real configured",
+        issues: "Issues",
+        notes: "Notes",
+        probe: "Probe",
+        search: "Search",
+        availability: "Availability",
+        next_steps: "Next steps",
+        guide: "Guide",
+        no_endpoint: "No endpoint",
+        smoke_search_title: "Smoke search",
+        smoke_search_subtitle: "{query} · {period}",
+        smoke_feedback: "Search {search_status}. Probe {probe_mode}. force_search {force_search}.",
+        normalized: "Normalized {value}",
+        trend_series: "Trend series {count}",
+        content_items: "Content items {count}",
+        force_search_label: "force_search {value}",
+        next_steps_title: "Smoke next steps",
+        next_steps_subtitle: "Operator checklist from the backend smoke runner.",
+        next_steps_empty: "No extra action items in the current smoke output.",
+      },
+      collect: {
+        title: "Manual collect",
+        subtitle: "Trigger tracked refreshes or run a one-off collection for a specific query.",
+        query_placeholder: "Optional query for one-off collect",
+        backfill_now: "Run backfill now",
+        tracked: "Collect tracked",
+        query: "Collect query",
+        query_required: "Enter a query before running one-off collection.",
+        feedback: "Triggered {count} collection run(s).",
+        trigger_error: "Failed to trigger collection.",
+        runs_title: "Recent collect runs",
+        runs_subtitle: "Last write attempts recorded by the backend scheduler and backfill workers.",
+        loading_runs: "Loading recent collect runs.",
+        no_runs: "No collect runs recorded yet.",
+        no_message: "No extra message recorded.",
+        global_run: "Global run",
+        keyword_ref: "Keyword #{id}",
+        status: "Status {value}",
+        tracked_state: "Tracked",
+        untracked_state: "Not tracked",
+      },
+      loading: {
+        title: "Loading search frame",
+        subtitle: "The first response should land before history finishes backfilling.",
+      },
+      empty: {
+        default: "Start with a direct GitHub path for the strongest first-run result. Plain keywords work too, but they only gain history after repeated collection.",
+      },
+      content: {
+        title: "Context stream",
+        subtitle: "Recent items associated with the current query.",
+        no_items: "No {source}content items yet. Collection will populate this area when that source is available.",
+        no_summary: "No summary available yet.",
+      },
+      content_source: {
+        all: "All sources",
+        newsnow: "NewsNow",
+        github: "GitHub",
+      },
+      snapshot: {
+        title: "Today's readout",
+        subtitle: "Simple source facts, no synthetic composite score.",
+        github_delta: "GitHub star delta",
+        newsnow_platforms: "NewsNow platforms",
+        newsnow_items: "NewsNow items",
+        updated_at: "Updated at",
+      },
+      availability: {
+        title: "Availability",
+        subtitle: "The UI treats partial success as normal.",
+        backfill_job: "Backfill job",
+        no_detail: "No additional detail provided.",
+      },
+      status: {
+        kind: "Kind",
+        track: "Track",
+        job: "Job",
+        tracked: "Tracked",
+        idle: "Idle",
+      },
+      kind: {
+        github_repo: "GitHub repo",
+        keyword: "Keyword",
+      },
+      heading: {
+        default: "Search one repository or keyword.",
+        repo: "Repository intelligence, first.",
+        keyword: "Keyword snapshot, then accumulation.",
+      },
+      trend: {
+        subtitle: "Period {period}. {count} visible source(s).",
+        no_history: "No local keyword history yet. The first NewsNow snapshot starts accumulation from today.",
+        one_point: "Accumulation started today. One snapshot is available now, and later collections will extend the curve.",
+        curve: "Keyword trend is rendered as a locally accumulated NewsNow daily snapshot curve.",
+        no_visible: "No visible trend line is ready yet. For plain keywords, today's snapshot starts accumulation and later collections extend the curve.",
+        points: "{count} points",
+      },
+      source: { github: "GitHub", newsnow: "NewsNow" },
+      task_type: { history: "history", content: "content", snapshot: "snapshot" },
+      source_type: {
+        github_repo: "GitHub repo",
+        keyword: "Keyword",
+      },
+      metric_label: {
+        hot_hit_count: "Hit items",
+        star_delta: "Star delta",
+      },
+      availability_key: {
+        github_history: "GitHub history",
+        github_content: "GitHub content",
+        newsnow_snapshot: "NewsNow snapshot",
+      },
+      status_value: {
+        success: "success",
+        failed: "failed",
+        partial: "partial",
+        pending: "pending",
+        running: "running",
+        ready: "ready",
+        skipped: "skipped",
+        warning: "warning",
+        misconfigured: "misconfigured",
+        fallback_only: "fallback only",
+        mock_only: "mock only",
+        active: "active",
+        idle: "idle",
+      },
+      generic: { na: "N/A", yes: "yes", no: "no", milliseconds: "ms" },
+      ribbon: {
+        source: "{source} {task}",
+      },
+    },
+  };
+
+  function loadLocale() {
+    try {
+      const stored = window.localStorage.getItem(LOCALE_KEY);
+      return stored === "en" ? "en" : DEFAULT_LOCALE;
+    } catch (_) {
+      return DEFAULT_LOCALE;
+    }
+  }
+
+  function persistLocale() {
+    try {
+      window.localStorage.setItem(LOCALE_KEY, state.locale);
+    } catch (_) {}
+  }
+
+  function resolveMessage(locale, key) {
+    return key.split(".").reduce(function (value, part) {
+      return value && typeof value === "object" ? value[part] : null;
+    }, MESSAGES[locale]);
+  }
+
+  function interpolate(template, values) {
+    return template.replace(/\{(\w+)\}/g, function (_, key) {
+      return values[key] === undefined || values[key] === null ? "" : String(values[key]);
+    });
+  }
+
+  function t(key, values) {
+    const template = resolveMessage(state.locale, key) || resolveMessage("en", key) || key;
+    return values ? interpolate(template, values) : template;
+  }
+
+  function translateToken(prefix, value) {
+    const normalized = String(value).replaceAll("-", "_");
+    return resolveMessage(state.locale, `${prefix}.${normalized}`) || resolveMessage("en", `${prefix}.${normalized}`) || String(value).replaceAll("_", " ");
+  }
 
   const state = {
+    locale: DEFAULT_LOCALE,
     view: "search",
     query: "",
     period: "30d",
@@ -47,6 +497,8 @@
   const elements = {
     searchViewLink: document.querySelector('[data-view-link="search"]'),
     trackedViewLink: document.querySelector('[data-view-link="tracked"]'),
+    langZhButton: document.getElementById("lang-zh-button"),
+    langEnButton: document.getElementById("lang-en-button"),
     dashboard: document.getElementById("dashboard"),
     emptyState: document.getElementById("empty-state"),
     errorState: document.getElementById("error-state"),
@@ -101,6 +553,17 @@
     snapshotCards: document.getElementById("snapshot-cards"),
     availabilityList: document.getElementById("availability-list"),
   };
+
+  function syncLocaleChrome() {
+    document.documentElement.lang = state.locale === "zh" ? "zh-CN" : "en";
+    document.title = t("document.title");
+    document.querySelectorAll("[data-i18n]").forEach(function (node) {
+      node.textContent = t(node.dataset.i18n);
+    });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(function (node) {
+      node.setAttribute("placeholder", t(node.dataset.i18nPlaceholder));
+    });
+  }
 
   function parseLocationState() {
     state.view = window.location.pathname === "/tracked" ? "tracked" : "search";
@@ -188,7 +651,7 @@
   }
 
   function formatTrackedKind(kind) {
-    return kind === "github_repo" ? "GitHub repo" : "Keyword";
+    return translateToken("kind", kind);
   }
 
   async function loadTrackedKeywords() {
@@ -199,7 +662,7 @@
     try {
       state.trackedKeywords = await request("/api/keywords?tracked_only=true");
     } catch (error) {
-      state.trackedError = error instanceof Error ? error.message : "Failed to load tracked keywords.";
+      state.trackedError = error instanceof Error ? error.message : t("tracked.update_error");
     } finally {
       state.trackedLoading = false;
       render();
@@ -226,21 +689,21 @@
     } else {
       state.schedulerStatus = null;
       state.schedulerError =
-        schedulerResult.reason instanceof Error ? schedulerResult.reason.message : "Failed to load scheduler status.";
+        schedulerResult.reason instanceof Error ? schedulerResult.reason.message : t("scheduler.unavailable");
     }
 
     if (runsResult.status === "fulfilled") {
       state.collectRuns = runsResult.value;
     } else {
       state.collectRuns = [];
-      state.collectRunsError = runsResult.reason instanceof Error ? runsResult.reason.message : "Failed to load collect runs.";
+      state.collectRunsError = runsResult.reason instanceof Error ? runsResult.reason.message : t("collect.trigger_error");
     }
 
     if (providerResult.status === "fulfilled") {
       state.providerStatus = providerResult.value;
     } else {
       state.providerStatus = null;
-      state.providerError = providerResult.reason instanceof Error ? providerResult.reason.message : "Failed to load provider status.";
+      state.providerError = providerResult.reason instanceof Error ? providerResult.reason.message : t("provider.smoke_error");
     }
 
     state.schedulerLoading = false;
@@ -273,9 +736,9 @@
 
   function formatDate(value) {
     if (!value) {
-      return "N/A";
+      return t("generic.na");
     }
-    return new Date(value).toLocaleString(undefined, {
+    return new Date(value).toLocaleString(state.locale === "zh" ? "zh-CN" : "en-US", {
       month: "short",
       day: "numeric",
       hour: "2-digit",
@@ -285,24 +748,51 @@
 
   function formatDuration(value) {
     if (value === null || value === undefined) {
-      return "N/A";
+      return t("generic.na");
     }
-    return `${value} ms`;
+    return `${value} ${t("generic.milliseconds")}`;
   }
 
   function formatAvailabilityLabel(key) {
-    return key.replaceAll("_", " ");
+    return translateToken("availability_key", key);
   }
 
   function formatTaskLabel(task) {
-    return `${task.source} ${task.task_type}`;
+    return t("ribbon.source", {
+      source: translateToken("source", task.source),
+      task: translateToken("task_type", task.task_type),
+    });
+  }
+
+  function formatStatusLabel(value) {
+    return translateToken("status_value", value);
+  }
+
+  function formatBooleanLabel(value) {
+    return value ? t("generic.yes") : t("generic.no");
+  }
+
+  function formatContentSourceLabel(value) {
+    return translateToken("content_source", value);
+  }
+
+  function formatPeriodLabel(value) {
+    return translateToken("period", value);
+  }
+
+  function formatSourceTypeLabel(value) {
+    return translateToken("source_type", value);
+  }
+
+  function formatMetricLabel(value) {
+    return translateToken("metric_label", value);
   }
 
   function renderProviderCard(check) {
     const issuesMarkup = check.issues.length
       ? `
           <div class="provider-issues">
-            <strong>Issues</strong>
+            <strong>${t("provider.issues")}</strong>
             <ul class="provider-list">
               ${check.issues.map((item) => `<li>${item}</li>`).join("")}
             </ul>
@@ -312,7 +802,7 @@
     const notesMarkup = check.notes.length
       ? `
           <div class="provider-notes">
-            <strong>Notes</strong>
+            <strong>${t("provider.notes")}</strong>
             <ul class="provider-list">
               ${check.notes.map((item) => `<li>${item}</li>`).join("")}
             </ul>
@@ -324,14 +814,14 @@
       <article class="provider-card">
         <header>
           <div>
-            <h3>${check.source}</h3>
+            <h3>${translateToken("source", check.source)}</h3>
             <p>${check.preferred_provider}${check.fallback_provider ? ` -> ${check.fallback_provider}` : ""}</p>
           </div>
-          <span class="provider-chip">${check.status}</span>
+          <span class="provider-chip">${formatStatusLabel(check.status)}</span>
         </header>
         <div class="provider-meta">
-          <span>mode ${check.mode}</span>
-          <span>real configured ${check.can_use_real_provider ? "true" : "false"}</span>
+          <span>${t("provider.mode")} ${check.mode}</span>
+          <span>${t("provider.real_configured")} ${formatBooleanLabel(check.can_use_real_provider)}</span>
         </div>
         ${issuesMarkup}
         ${notesMarkup}
@@ -344,16 +834,16 @@
       <article class="provider-card">
         <header>
           <div>
-            <h3>${result.source}</h3>
+            <h3>${translateToken("source", result.source)}</h3>
             <p>${result.attempted_provider}</p>
           </div>
-          <span class="provider-chip">${result.status}</span>
+          <span class="provider-chip">${formatStatusLabel(result.status)}</span>
         </header>
         <div class="provider-meta">
-          <span>${result.endpoint || "no endpoint"}</span>
+          <span>${result.endpoint || t("provider.no_endpoint")}</span>
         </div>
         <div class="provider-notes">
-          <strong>Probe</strong>
+          <strong>${t("provider.probe")}</strong>
           <ul class="provider-list">
             <li>${result.message}</li>
           </ul>
@@ -366,18 +856,18 @@
     const availabilityEntries = Object.entries(result.search.availability || {});
     const details = [
       result.search.message,
-      result.search.keyword_kind ? `keyword kind ${result.search.keyword_kind}` : null,
-      result.search.normalized_query ? `normalized ${result.search.normalized_query}` : null,
-      `trend series ${result.search.trend_series_count}`,
-      `content items ${result.search.content_item_count}`,
-      result.search.backfill_status ? `backfill ${result.search.backfill_status}` : null,
+      result.search.keyword_kind ? `${t("status.kind")} ${translateToken("kind", result.search.keyword_kind)}` : null,
+      result.search.normalized_query ? t("provider.normalized", { value: result.search.normalized_query }) : null,
+      t("provider.trend_series", { count: result.search.trend_series_count }),
+      t("provider.content_items", { count: result.search.content_item_count }),
+      result.search.backfill_status ? `${t("availability.backfill_job")} ${formatStatusLabel(result.search.backfill_status)}` : null,
     ].filter(Boolean);
     const availabilityMarkup = availabilityEntries.length
       ? `
           <div class="provider-notes">
-            <strong>Availability</strong>
+            <strong>${t("provider.availability")}</strong>
             <ul class="provider-list">
-              ${availabilityEntries.map(([key, value]) => `<li>${formatAvailabilityLabel(key)}: ${value}</li>`).join("")}
+              ${availabilityEntries.map(([key, value]) => `<li>${formatAvailabilityLabel(key)}: ${formatStatusLabel(value)}</li>`).join("")}
             </ul>
           </div>
         `
@@ -387,17 +877,17 @@
       <article class="provider-card provider-smoke-card">
         <header>
           <div>
-            <h3>Smoke search</h3>
-            <p>${result.query} · ${result.period}</p>
+            <h3>${t("provider.smoke_search_title")}</h3>
+            <p>${t("provider.smoke_search_subtitle", { query: result.query, period: formatPeriodLabel(result.period) })}</p>
           </div>
-          <span class="provider-chip">${result.search.status}</span>
+          <span class="provider-chip">${formatStatusLabel(result.search.status)}</span>
         </header>
         <div class="provider-meta">
-          <span>probe ${result.probe_mode}</span>
-          <span>force_search ${result.force_search ? "true" : "false"}</span>
+          <span>${t("provider.probe")} ${result.probe_mode}</span>
+          <span>${t("provider.force_search_label", { value: formatBooleanLabel(result.force_search) })}</span>
         </div>
         <div class="provider-notes">
-          <strong>Search</strong>
+          <strong>${t("provider.search")}</strong>
           <ul class="provider-list">
             ${details.map((item) => `<li>${item}</li>`).join("")}
           </ul>
@@ -408,19 +898,19 @@
   }
 
   function renderProviderSmokeNextStepsCard(result) {
-    const nextSteps = result.next_steps.length ? result.next_steps : ["当前 smoke 输出没有额外动作项。"];
+    const nextSteps = result.next_steps.length ? result.next_steps : [t("provider.next_steps_empty")];
 
     return `
       <article class="provider-card provider-smoke-card">
         <header>
           <div>
-            <h3>Smoke next steps</h3>
-            <p>Operator checklist from the backend smoke runner.</p>
+            <h3>${t("provider.next_steps_title")}</h3>
+            <p>${t("provider.next_steps_subtitle")}</p>
           </div>
-          <span class="provider-chip">guide</span>
+          <span class="provider-chip">${t("provider.guide")}</span>
         </header>
         <div class="provider-notes">
-          <strong>Next steps</strong>
+          <strong>${t("provider.next_steps")}</strong>
           <ul class="provider-list">
             ${nextSteps.map((item) => `<li>${item}</li>`).join("")}
           </ul>
@@ -434,8 +924,7 @@
   }
 
   function formatSeriesLabel(series) {
-    const metric = series.metric === "hot_hit_count" ? "items" : series.metric.replaceAll("_", " ");
-    return `${series.source} ${metric}`;
+    return `${translateToken("source", series.source)} ${formatMetricLabel(series.metric)}`;
   }
 
   function getVisibleSeries() {
@@ -447,11 +936,9 @@
 
   function getHeading() {
     if (!state.result) {
-      return "Search one repository or keyword.";
+      return t("heading.default");
     }
-    return state.result.keyword.kind === "github_repo"
-      ? "Repository intelligence, first."
-      : "Keyword snapshot, then accumulation.";
+    return state.result.keyword.kind === "github_repo" ? t("heading.repo") : t("heading.keyword");
   }
 
   function getTrendNote() {
@@ -462,12 +949,12 @@
       (series) => series.source === "newsnow" && series.metric === "hot_hit_count"
     );
     if (!newsnowSeries) {
-      return "No local keyword history yet. The first NewsNow snapshot starts accumulation from today.";
+      return t("trend.no_history");
     }
     if (newsnowSeries.points.length === 1) {
-      return "Accumulation started today. One snapshot is available now, and later collections will extend the curve.";
+      return t("trend.one_point");
     }
-    return "Keyword trend is rendered as a locally accumulated NewsNow daily snapshot curve.";
+    return t("trend.curve");
   }
 
   function sparklineSvg(points) {
@@ -499,6 +986,8 @@
   function renderNavigation() {
     elements.searchViewLink.classList.toggle("is-active", state.view === "search");
     elements.trackedViewLink.classList.toggle("is-active", state.view === "tracked");
+    elements.langZhButton.classList.toggle("is-active", state.locale === "zh");
+    elements.langEnButton.classList.toggle("is-active", state.locale === "en");
   }
 
   function renderStatusRibbon() {
@@ -510,13 +999,15 @@
 
     const pills = [];
     pills.push(`<span class="pill"><strong>${state.result.keyword.normalized_query}</strong></span>`);
-    pills.push(`<span class="pill"><strong>kind</strong><span>${state.result.keyword.kind}</span></span>`);
-    pills.push(`<span class="pill"><strong>track</strong><span>${state.result.keyword.is_tracked ? "active" : "idle"}</span></span>`);
+    pills.push(`<span class="pill"><strong>${t("status.kind")}</strong><span>${translateToken("kind", state.result.keyword.kind)}</span></span>`);
+    pills.push(
+      `<span class="pill"><strong>${t("status.track")}</strong><span>${state.result.keyword.is_tracked ? t("status.tracked") : t("status.idle")}</span></span>`
+    );
     if (state.result.backfill_job) {
-      pills.push(`<span class="pill"><strong>job</strong><span>${state.result.backfill_job.status}</span></span>`);
+      pills.push(`<span class="pill"><strong>${t("status.job")}</strong><span>${formatStatusLabel(state.result.backfill_job.status)}</span></span>`);
       state.result.backfill_job.tasks.forEach((task) => {
         pills.push(
-          `<span class="pill"><strong>${task.source}</strong><span>${task.task_type}</span><span>${task.status}</span></span>`
+          `<span class="pill"><strong>${translateToken("source", task.source)}</strong><span>${translateToken("task_type", task.task_type)}</span><span>${formatStatusLabel(task.status)}</span></span>`
         );
       });
     }
@@ -527,7 +1018,7 @@
 
   function renderTrackedKeywords() {
     elements.trackedRefreshButton.disabled = state.trackedLoading || state.trackedBusyIds.length > 0;
-    elements.trackedRefreshButton.textContent = state.trackedLoading ? "Refreshing..." : "Refresh";
+    elements.trackedRefreshButton.textContent = state.trackedLoading ? t("action.refreshing") : t("action.refresh");
 
     if (state.trackedError) {
       elements.trackedError.textContent = state.trackedError;
@@ -541,7 +1032,7 @@
       elements.trackedEmptyState.classList.add("hidden");
       elements.trackedList.innerHTML = `
         <div class="empty-state">
-          Loading tracked keywords from the local database.
+          ${t("tracked.loading")}
         </div>
       `;
       return;
@@ -563,11 +1054,11 @@
               <button class="tracked-jump" data-tracked-open-index="${index}" type="button">${getTrackedQuery(item)}</button>
               <div class="tracked-meta">
                 <span>${formatTrackedKind(item.kind)}</span>
-                <span>updated ${formatDate(item.updated_at)}</span>
+                <span>${t("tracked.updated", { value: formatDate(item.updated_at) })}</span>
               </div>
             </div>
             <button class="button-ghost" data-tracked-id="${item.id}" type="button" ${busy ? "disabled" : ""}>
-              ${busy ? "Saving..." : "Untrack"}
+              ${busy ? t("tracked.saving") : t("tracked.untrack")}
             </button>
           </article>
         `;
@@ -582,10 +1073,10 @@
     elements.operationsRefreshButton.disabled =
       operationsBusy;
     elements.operationsRefreshButton.textContent = operationsLoading
-      ? "Refreshing..."
+      ? t("action.refreshing")
       : operationsBusy
-        ? "Working..."
-        : "Refresh";
+        ? t("action.working")
+        : t("action.refresh");
 
     if (state.schedulerError) {
       elements.schedulerError.textContent = state.schedulerError;
@@ -598,38 +1089,42 @@
     if (state.schedulerLoading && !state.schedulerStatus) {
       elements.schedulerStats.innerHTML = `
         <div class="empty-state">
-          Loading scheduler snapshot from the backend.
+          ${t("scheduler.loading")}
         </div>
       `;
     } else if (!state.schedulerStatus) {
       elements.schedulerStats.innerHTML = `
         <div class="empty-state">
-          Scheduler snapshot is not available yet.
+          ${t("scheduler.unavailable")}
         </div>
       `;
     } else {
       const stats = [
-        ["Enabled", state.schedulerStatus.enabled ? "true" : "false", "Controlled by SCHEDULER_ENABLED."],
-        ["Worker", state.schedulerStatus.running ? "running" : "idle", `Period ${state.schedulerStatus.period}.`],
+        [t("scheduler.enabled"), formatBooleanLabel(state.schedulerStatus.enabled), t("scheduler.enabled_detail")],
         [
-          "Interval",
+          t("scheduler.worker"),
+          formatStatusLabel(state.schedulerStatus.running ? "running" : "idle"),
+          t("scheduler.worker_detail", { period: formatPeriodLabel(state.schedulerStatus.period) }),
+        ],
+        [
+          t("scheduler.interval"),
           `${state.schedulerStatus.interval_seconds}s`,
-          `Initial delay ${state.schedulerStatus.initial_delay_seconds}s.`,
+          t("scheduler.interval_detail", { value: `${state.schedulerStatus.initial_delay_seconds}s` }),
         ],
         [
-          "Last status",
-          state.schedulerStatus.last_status,
-          state.schedulerStatus.last_error || `Triggered ${state.schedulerStatus.last_triggered_count} keyword(s) last time.`,
+          t("scheduler.last_status"),
+          formatStatusLabel(state.schedulerStatus.last_status),
+          state.schedulerStatus.last_error || t("scheduler.last_status_detail", { count: state.schedulerStatus.last_triggered_count }),
         ],
         [
-          "Last started",
+          t("scheduler.last_started"),
           formatDate(state.schedulerStatus.last_started_at),
-          `Last finished ${formatDate(state.schedulerStatus.last_finished_at)}.`,
+          t("scheduler.last_started_detail", { value: formatDate(state.schedulerStatus.last_finished_at) }),
         ],
         [
-          "Backfill",
-          state.schedulerStatus.run_backfill_now ? "true" : "false",
-          `Iterations ${state.schedulerStatus.iteration_count}.`,
+          t("scheduler.backfill"),
+          formatBooleanLabel(state.schedulerStatus.run_backfill_now),
+          t("scheduler.backfill_detail", { count: state.schedulerStatus.iteration_count }),
         ],
       ];
       elements.schedulerStats.innerHTML = stats
@@ -654,12 +1149,12 @@
     }
 
     elements.providerVerifyButton.disabled = state.providerVerifyBusy || state.providerSmokeBusy;
-    elements.providerVerifyButton.textContent = state.providerVerifyBusy ? "Verifying..." : "Verify real";
+    elements.providerVerifyButton.textContent = state.providerVerifyBusy ? t("provider.verifying") : t("provider.verify");
     elements.providerSmokeQueryInput.disabled = state.providerVerifyBusy || state.providerSmokeBusy;
     elements.providerSmokePeriodSelect.disabled = state.providerVerifyBusy || state.providerSmokeBusy;
     elements.providerSmokeForceCheckbox.disabled = state.providerVerifyBusy || state.providerSmokeBusy;
     elements.providerSmokeButton.disabled = state.providerVerifyBusy || state.providerSmokeBusy;
-    elements.providerSmokeButton.textContent = state.providerSmokeBusy ? "Running..." : "Run smoke";
+    elements.providerSmokeButton.textContent = state.providerSmokeBusy ? t("provider.running_smoke") : t("provider.run_smoke");
 
     if (state.providerVerifyFeedback) {
       elements.providerVerifyFeedback.innerHTML = `
@@ -675,8 +1170,11 @@
       elements.providerSmokeFeedback.innerHTML = `
         <strong>${state.providerSmokeResult.summary}</strong>
         <p class="availability-message">
-          Search ${state.providerSmokeResult.search.status}. Probe ${state.providerSmokeResult.probe_mode}. force_search
-          ${state.providerSmokeResult.force_search ? "true" : "false"}.
+          ${t("provider.smoke_feedback", {
+            search_status: formatStatusLabel(state.providerSmokeResult.search.status),
+            probe_mode: state.providerSmokeResult.probe_mode,
+            force_search: formatBooleanLabel(state.providerSmokeResult.force_search),
+          })}
         </p>
       `;
       elements.providerSmokeFeedback.classList.remove("hidden");
@@ -686,10 +1184,10 @@
     }
 
     if (state.providerLoading && !state.providerStatus) {
-      elements.providerSummary.innerHTML = "Loading provider preflight from the backend.";
+      elements.providerSummary.innerHTML = t("provider.loading_summary");
       elements.providerGrid.innerHTML = "";
     } else if (!state.providerStatus) {
-      elements.providerSummary.innerHTML = "Provider preflight is not available yet.";
+      elements.providerSummary.innerHTML = t("provider.unavailable_summary");
       elements.providerGrid.innerHTML = "";
     } else {
       elements.providerSummary.innerHTML = `
@@ -708,7 +1206,7 @@
     if (state.providerSmokeBusy && !state.providerSmokeResult) {
       elements.providerSmokeGrid.innerHTML = `
         <div class="empty-state">
-          Running provider smoke with the backend and waiting for the end-to-end summary.
+          ${t("provider.running_smoke")}
         </div>
       `;
       elements.providerSmokeGrid.classList.remove("hidden");
@@ -725,8 +1223,8 @@
 
     elements.collectTrackedButton.disabled = state.collectBusy;
     elements.collectQueryButton.disabled = state.collectBusy;
-    elements.collectTrackedButton.textContent = state.collectBusy ? "Working..." : "Collect tracked";
-    elements.collectQueryButton.textContent = state.collectBusy ? "Working..." : "Collect query";
+    elements.collectTrackedButton.textContent = state.collectBusy ? t("action.working") : t("collect.tracked");
+    elements.collectQueryButton.textContent = state.collectBusy ? t("action.working") : t("collect.query");
 
     if (state.collectError) {
       elements.collectError.textContent = state.collectError;
@@ -753,9 +1251,9 @@
             <article class="collect-result-item">
               <strong>${item.query}</strong>
               <div class="collect-result-meta">
-                <span>keyword #${item.keyword_id}</span>
-                <span>status ${item.status}</span>
-                <span>${item.tracked ? "tracked" : "not tracked"}</span>
+                <span>${t("collect.keyword_ref", { id: item.keyword_id })}</span>
+                <span>${t("collect.status", { value: formatStatusLabel(item.status) })}</span>
+                <span>${item.tracked ? t("collect.tracked_state") : t("collect.untracked_state")}</span>
               </div>
             </article>
           `
@@ -774,13 +1272,13 @@
     if (state.collectRunsLoading && !state.collectRuns.length) {
       elements.collectRuns.innerHTML = `
         <div class="empty-state">
-          Loading recent collect runs.
+          ${t("collect.loading_runs")}
         </div>
       `;
     } else if (!state.collectRuns.length) {
       elements.collectRuns.innerHTML = `
         <div class="empty-state">
-          No collect runs recorded yet.
+          ${t("collect.no_runs")}
         </div>
       `;
     } else {
@@ -788,14 +1286,14 @@
         .map(
           (run) => `
             <article class="ops-run-item">
-              <strong>${run.source} / ${run.run_type}</strong>
+              <strong>${translateToken("source", run.source)} / ${run.run_type}</strong>
               <div class="ops-run-meta">
-                <span>${run.status}</span>
+                <span>${formatStatusLabel(run.status)}</span>
                 <span>${formatDuration(run.duration_ms)}</span>
                 <span>${formatDate(run.created_at)}</span>
-                <span>${run.keyword_id ? `keyword #${run.keyword_id}` : "global run"}</span>
+                <span>${run.keyword_id ? t("collect.keyword_ref", { id: run.keyword_id }) : t("collect.global_run")}</span>
               </div>
-              <p class="ops-run-message">${run.message || "No extra message recorded."}</p>
+              <p class="ops-run-message">${run.message || t("collect.no_message")}</p>
             </article>
           `
         )
@@ -816,7 +1314,7 @@
         (item, index) => `
           <button class="recent-chip" data-recent-index="${index}" type="button">
             <strong>${item.query}</strong>
-            <span>${item.period} · ${item.contentSource}</span>
+            <span>${formatPeriodLabel(item.period)} · ${formatContentSourceLabel(item.contentSource)}</span>
           </button>
         `
       )
@@ -828,7 +1326,7 @@
 
     elements.trendHeading.textContent = getHeading();
     elements.trendSubtitle.textContent = state.result
-      ? `Period ${state.period}. ${visibleSeries.length} visible source${visibleSeries.length === 1 ? "" : "s"}.`
+      ? t("trend.subtitle", { period: formatPeriodLabel(state.period), count: visibleSeries.length })
       : "";
 
     const trendNote = getTrendNote();
@@ -857,8 +1355,7 @@
     if (!visibleSeries.length) {
       elements.seriesGrid.innerHTML = `
         <div class="empty-state">
-          No visible trend line is ready yet. For plain keywords, today's snapshot starts accumulation and later
-          collections extend the curve.
+          ${t("trend.no_visible")}
         </div>
       `;
       return;
@@ -870,10 +1367,10 @@
           <article class="series-card">
             <header>
               <div>
-                <h3>${series.source} / ${series.metric}</h3>
-                <p>${series.source_type}</p>
+                <h3>${formatSeriesLabel(series)}</h3>
+                <p>${formatSourceTypeLabel(series.source_type)}</p>
               </div>
-              <p>${series.points.length} points</p>
+              <p>${t("trend.points", { count: series.points.length })}</p>
             </header>
             ${sparklineSvg(series.points)}
           </article>
@@ -889,10 +1386,10 @@
     }
 
     if (!state.result.content_items.length) {
-      const sourceLabel = state.contentSource === "all" ? "" : `${state.contentSource} `;
+      const sourceLabel = state.contentSource === "all" ? "" : `${formatContentSourceLabel(state.contentSource)} `;
       elements.contentList.innerHTML = `
         <div class="empty-state">
-          No ${sourceLabel}content items yet. Collection will populate this area when that source is available.
+          ${t("content.no_items", { source: sourceLabel })}
         </div>
       `;
       return;
@@ -903,12 +1400,12 @@
         (item) => `
           <article class="content-item">
             <div class="content-meta">
-              <span>${item.source}</span>
-              <span>${item.source_type}</span>
+              <span>${translateToken("source", item.source)}</span>
+              <span>${formatSourceTypeLabel(item.source_type)}</span>
               <span>${formatDate(item.published_at)}</span>
             </div>
             <h3>${item.url ? `<a href="${item.url}" target="_blank" rel="noreferrer">${item.title}</a>` : item.title}</h3>
-            <p>${item.summary || "No summary available yet."}</p>
+            <p>${item.summary || t("content.no_summary")}</p>
           </article>
         `
       )
@@ -922,10 +1419,10 @@
     }
 
     const snapshotItems = [
-      ["GitHub star delta", state.result.snapshot.github_star_today ?? "N/A"],
-      ["NewsNow platforms", state.result.snapshot.newsnow_platform_count ?? "N/A"],
-      ["NewsNow items", state.result.snapshot.newsnow_item_count ?? "N/A"],
-      ["Updated at", formatDate(state.result.snapshot.updated_at)],
+      [t("snapshot.github_delta"), state.result.snapshot.github_star_today ?? t("generic.na")],
+      [t("snapshot.newsnow_platforms"), state.result.snapshot.newsnow_platform_count ?? t("generic.na")],
+      [t("snapshot.newsnow_items"), state.result.snapshot.newsnow_item_count ?? t("generic.na")],
+      [t("snapshot.updated_at"), formatDate(state.result.snapshot.updated_at)],
     ];
 
     elements.snapshotCards.innerHTML = snapshotItems
@@ -949,9 +1446,9 @@
     const taskDetails = [];
     if (state.result.backfill_job) {
       if (state.result.backfill_job.error_message) {
-        taskDetails.push({
-          label: "backfill job",
-          status: state.result.backfill_job.status,
+          taskDetails.push({
+          label: t("availability.backfill_job"),
+          status: formatStatusLabel(state.result.backfill_job.status),
           message: state.result.backfill_job.error_message,
         });
       }
@@ -959,8 +1456,8 @@
         if (task.message || ["failed", "partial"].includes(task.status)) {
           taskDetails.push({
             label: formatTaskLabel(task),
-            status: task.status,
-            message: task.message || "No additional detail provided.",
+            status: formatStatusLabel(task.status),
+            message: task.message || t("availability.no_detail"),
           });
         }
       });
@@ -970,12 +1467,12 @@
       .map(
         ([key, value]) => `
           <div class="availability-item">
-            <div class="availability-copy">
-              <span>${formatAvailabilityLabel(key)}</span>
+              <div class="availability-copy">
+                <span>${formatAvailabilityLabel(key)}</span>
+              </div>
+              <span class="availability-state">${formatStatusLabel(value)}</span>
             </div>
-            <span class="availability-state">${value}</span>
-          </div>
-        `
+          `
       )
       .concat(
         taskDetails.map(
@@ -994,19 +1491,21 @@
   }
 
   function render() {
+    syncLocaleChrome();
     syncControls();
     renderNavigation();
     renderRecentSearches();
     renderTrackedKeywords();
     renderOperations();
     elements.searchButton.disabled = state.loading;
-    elements.searchButton.textContent = state.loading ? "Searching..." : "Search";
+    elements.searchButton.textContent = state.loading ? t("search.searching") : t("search.submit");
     elements.trackButton.disabled = state.trackingBusy || !state.result;
+    elements.trackButton.dataset.trackState = !state.result ? "unavailable" : state.result.keyword.is_tracked ? "tracked" : "untracked";
     elements.trackButton.textContent = state.trackingBusy
-      ? "Saving..."
+      ? t("action.save")
       : state.result && state.result.keyword.is_tracked
-        ? "Untrack"
-        : "Track";
+        ? t("tracked.untrack")
+        : t("status.track");
 
     if (state.error) {
       elements.errorState.textContent = state.error;
@@ -1069,7 +1568,7 @@
     syncCollectStateFromControls();
 
     if (mode === "query" && !state.collectQuery) {
-      state.collectError = "Enter a query before running one-off collection.";
+      state.collectError = t("collect.query_required");
       state.collectFeedback = null;
       state.collectResults = [];
       render();
@@ -1093,11 +1592,11 @@
         method: "POST",
         body: JSON.stringify(payload),
       });
-      state.collectFeedback = `Triggered ${response.triggered_count} collection run(s).`;
+      state.collectFeedback = t("collect.feedback", { count: response.triggered_count });
       state.collectResults = response.results;
       await Promise.all([loadTrackedKeywords(), loadOperationsData()]);
     } catch (error) {
-      state.collectError = error instanceof Error ? error.message : "Failed to trigger collection.";
+      state.collectError = error instanceof Error ? error.message : t("collect.trigger_error");
     } finally {
       state.collectBusy = false;
       render();
@@ -1117,7 +1616,7 @@
       });
       await loadOperationsData();
     } catch (error) {
-      state.providerError = error instanceof Error ? error.message : "Failed to verify provider connectivity.";
+      state.providerError = error instanceof Error ? error.message : t("provider.verify_error");
     } finally {
       state.providerVerifyBusy = false;
       render();
@@ -1151,7 +1650,7 @@
       state.providerSmokeResult = payload;
       await loadOperationsData();
     } catch (error) {
-      state.providerError = error instanceof Error ? error.message : "Failed to run provider smoke.";
+      state.providerError = error instanceof Error ? error.message : t("provider.smoke_error");
     } finally {
       state.providerSmokeBusy = false;
       render();
@@ -1188,7 +1687,7 @@
       render();
       schedulePolling();
     } catch (error) {
-      state.error = error instanceof Error ? error.message : "Search failed.";
+      state.error = error instanceof Error ? error.message : t("search.failed");
       state.result = null;
       stopPolling();
       render();
@@ -1256,7 +1755,7 @@
       state.result.keyword.is_tracked = tracked;
       await loadTrackedKeywords();
     } catch (error) {
-      state.error = error instanceof Error ? error.message : "Failed to update tracking state.";
+      state.error = error instanceof Error ? error.message : t("tracked.update_error");
     } finally {
       state.trackingBusy = false;
       render();
@@ -1279,7 +1778,7 @@
       }
       await loadTrackedKeywords();
     } catch (error) {
-      state.trackedError = error instanceof Error ? error.message : "Failed to update tracked keyword.";
+      state.trackedError = error instanceof Error ? error.message : t("tracked.update_error");
     } finally {
       state.trackedBusyIds = state.trackedBusyIds.filter((id) => id !== keywordId);
       render();
@@ -1310,6 +1809,18 @@
 
   elements.trackButton.addEventListener("click", function () {
     toggleTrack();
+  });
+
+  elements.langZhButton.addEventListener("click", function () {
+    state.locale = "zh";
+    persistLocale();
+    render();
+  });
+
+  elements.langEnButton.addEventListener("click", function () {
+    state.locale = "en";
+    persistLocale();
+    render();
   });
 
   elements.searchViewLink.addEventListener("click", function (event) {
@@ -1442,6 +1953,7 @@
   });
 
   parseLocationState();
+  state.locale = loadLocale();
   state.recentSearches = loadRecentSearches();
   syncControls();
   render();

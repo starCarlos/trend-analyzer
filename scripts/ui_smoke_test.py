@@ -5,7 +5,9 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 from urllib.parse import urlencode
+from uuid import uuid4
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -16,6 +18,7 @@ DEFAULT_REPO_QUERY = "openai/openai-python"
 DEFAULT_KEYWORD_QUERY = "mcp"
 DEFAULT_PERIOD = "30d"
 DEFAULT_DRIVER = os.environ.get("TRENDSCOPE_UI_DRIVER", "auto")
+DEFAULT_INPROCESS_DATABASE_URL = os.environ.get("TRENDSCOPE_INPROCESS_DATABASE_URL", "").strip()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,10 +28,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo-query", default=DEFAULT_REPO_QUERY)
     parser.add_argument("--keyword-query", default=DEFAULT_KEYWORD_QUERY)
     parser.add_argument("--period", choices=["7d", "30d", "90d", "all"], default=DEFAULT_PERIOD)
+    parser.add_argument("--database-url", default=DEFAULT_INPROCESS_DATABASE_URL)
     parser.add_argument("--output-json")
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--driver", choices=["auto", "playwright", "inprocess"], default=DEFAULT_DRIVER)
     return parser
+
+
+def build_inprocess_database_url(database_url: str = "") -> str:
+    if database_url.strip():
+        return database_url.strip()
+    db_path = Path(tempfile.gettempdir()) / f"trendscope-ui-smoke-{uuid4().hex}.db"
+    return f"sqlite:///{db_path}"
+
+
+def configure_inprocess_database(database_url: str = "") -> str:
+    resolved_database_url = build_inprocess_database_url(database_url)
+    os.environ["DATABASE_URL"] = resolved_database_url
+    os.environ.setdefault("APP_ENV", "ui_smoke_inprocess")
+    return resolved_database_url
 
 
 def build_search_url(base_url: str, query: str, period: str) -> str:
@@ -113,15 +131,15 @@ def smoke_repo_search(page, *, base_url: str, query: str, period: str, output_di
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
     page.wait_for_load_state("networkidle", timeout=60000)
 
-    wait_until_text(page, "Today's readout")
-    wait_until_text(page, "Availability")
+    wait_until_visible(page, "#snapshot-cards")
+    wait_until_visible(page, "#availability-list")
 
     track_button = page.locator("#track-button")
-    track_label = (track_button.text_content(timeout=60000) or "").strip()
-    if track_label == "Track":
+    track_state = track_button.get_attribute("data-track-state", timeout=60000) or ""
+    if track_state == "untracked":
         track_button.click()
     page.wait_for_function(
-        "() => document.querySelector('#track-button')?.textContent?.trim() === 'Untrack'",
+        "() => document.querySelector('#track-button')?.dataset.trackState === 'tracked'",
         timeout=60000,
     )
 
@@ -134,7 +152,7 @@ def smoke_repo_search(page, *, base_url: str, query: str, period: str, output_di
         "saw_today_readout": page.locator("#snapshot-cards .stat-card").count() >= 1,
         "saw_github_content": any_locator_contains(content_items, "github"),
         "saw_trend_chart": series_cards.count() >= 1,
-        "track_ready": (track_button.text_content() or "").strip() == "Untrack",
+        "track_ready": (track_button.get_attribute("data-track-state") or "").strip() == "tracked",
         "screenshot_path": screenshot_path,
     }
 
@@ -144,8 +162,8 @@ def smoke_keyword_search(page, *, base_url: str, query: str, period: str, output
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
     page.wait_for_load_state("networkidle", timeout=60000)
 
-    wait_until_text(page, "Today's readout")
-    wait_until_text(page, "Context stream")
+    wait_until_visible(page, "#snapshot-cards")
+    wait_until_visible(page, "#content-list")
 
     content_items = page.locator(".content-item")
     screenshot_path = write_screenshot(page, output_dir, "trendscope-keyword-smoke.png")
@@ -176,8 +194,7 @@ def smoke_tracked_page(page, *, base_url: str, repo_query: str, period: str, out
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
     page.wait_for_load_state("networkidle", timeout=60000)
 
-    wait_until_text(page, "Tracked watchlist")
-    wait_until_text(page, "Provider preflight")
+    wait_until_visible(page, "#tracked-panel")
     wait_until_visible(page, "#provider-smoke-form")
 
     verify_button = page.locator("#provider-verify-button")
@@ -187,18 +204,17 @@ def smoke_tracked_page(page, *, base_url: str, repo_query: str, period: str, out
     page.fill("#provider-smoke-query-input", repo_query)
     page.select_option("#provider-smoke-period-select", period)
     page.locator("#provider-smoke-button").click()
-    wait_for_text(page, "Smoke search")
-    wait_for_text(page, "Smoke next steps")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#provider-smoke-grid .provider-card').length >= 2",
+        timeout=60000,
+    )
     wait_for_not_hidden(page, "#provider-smoke-feedback")
 
     runs_before = page.locator(".ops-run-item").count()
     page.locator("#collect-tracked-button").click()
     wait_for_not_hidden(page, "#collect-feedback")
     page.wait_for_function(
-        """() => {
-            const feedback = document.querySelector('#collect-feedback');
-            return Boolean(feedback) && feedback.textContent.includes('Triggered');
-        }""",
+        "() => document.querySelectorAll('.collect-result-item').length >= 1",
         timeout=60000,
     )
     page.wait_for_load_state("networkidle", timeout=60000)
@@ -289,6 +305,7 @@ def run_inprocess_flows(
     repo_query: str,
     keyword_query: str,
     period: str,
+    database_url: str = "",
 ) -> dict[str, object]:
     previous_cwd = Path.cwd()
     if str(BACKEND_DIR) not in sys.path:
@@ -296,6 +313,7 @@ def run_inprocess_flows(
 
     os.chdir(BACKEND_DIR)
     try:
+        resolved_database_url = configure_inprocess_database(database_url)
         from app.database import SessionLocal
         from app.services.collector import refresh_keyword
         from app.services.collector import trigger_collection
@@ -364,8 +382,8 @@ def run_inprocess_flows(
             "trendscope-search-smoke-evidence.json",
             {
                 "driver": "inprocess",
-                "page_contains_today_readout": "Today's readout" in page_html,
-                "page_contains_availability": "Availability" in page_html,
+                "page_contains_today_readout": 'id="snapshot-cards"' in page_html,
+                "page_contains_availability": 'id="availability-list"' in page_html,
                 "search_payload": repo_payload,
                 "track_ready": track_ready,
                 "tracked_keywords_after_track": tracked_items,
@@ -376,8 +394,8 @@ def run_inprocess_flows(
             "trendscope-keyword-smoke-evidence.json",
             {
                 "driver": "inprocess",
-                "page_contains_today_readout": "Today's readout" in page_html,
-                "page_contains_context_stream": "Context stream" in page_html,
+                "page_contains_today_readout": 'id="snapshot-cards"' in page_html,
+                "page_contains_context_stream": 'id="content-list"' in page_html,
                 "search_payload": keyword_payload,
             },
         )
@@ -386,8 +404,8 @@ def run_inprocess_flows(
             "trendscope-tracked-smoke-evidence.json",
             {
                 "driver": "inprocess",
-                "page_contains_tracked_watchlist": "Tracked watchlist" in page_html,
-                "page_contains_provider_preflight": "Provider preflight" in page_html,
+                "page_contains_tracked_watchlist": 'id="tracked-panel"' in page_html,
+                "page_contains_provider_preflight": 'id="provider-smoke-form"' in page_html,
                 "provider_verify": verify_payload,
                 "provider_smoke": smoke_payload,
                 "collect_feedback": collect_feedback,
@@ -402,6 +420,7 @@ def run_inprocess_flows(
         return {
             "driver": "inprocess",
             "base_url": base_url,
+            "database_url": resolved_database_url,
             "repo_query": repo_query,
             "keyword_query": keyword_query,
             "period": period,
@@ -432,7 +451,7 @@ def run_inprocess_flows(
             },
             "tracked_page": {
                 "url": f"{base_url}/tracked",
-                "page_opened": "Tracked watchlist" in page_html,
+                "page_opened": 'id="tracked-panel"' in page_html,
                 "verify_real_completed": bool(verify_payload.get("github")) and bool(verify_payload.get("newsnow")),
                 "run_smoke_completed": bool(smoke_payload.get("provider_verify")) and bool(smoke_payload.get("search")),
                 "collect_tracked_executed": collect_tracked_executed,
@@ -456,6 +475,7 @@ def run_flows(
     period: str,
     headed: bool,
     driver: str,
+    database_url: str = "",
 ) -> dict[str, object]:
     if driver == "playwright":
         return run_playwright_flows(
@@ -473,6 +493,7 @@ def run_flows(
             repo_query=repo_query,
             keyword_query=keyword_query,
             period=period,
+            database_url=database_url,
         )
 
     try:
@@ -491,6 +512,7 @@ def run_flows(
             repo_query=repo_query,
             keyword_query=keyword_query,
             period=period,
+            database_url=database_url,
         )
         fallback_payload["playwright_fallback_reason"] = str(exc)
         return fallback_payload
@@ -509,6 +531,7 @@ def main() -> int:
         period=args.period,
         headed=args.headed,
         driver=args.driver,
+        database_url=args.database_url,
     )
     serialized = json.dumps(payload, indent=2, ensure_ascii=False)
     if args.output_json:

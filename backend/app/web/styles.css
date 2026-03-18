@@ -71,6 +71,14 @@ select {
   margin-bottom: 18px;
 }
 
+.site-nav-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .brand-mark {
   font-family: "Iowan Old Style", "Palatino Linotype", serif;
   font-size: 28px;
@@ -88,6 +96,31 @@ select {
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid rgba(22, 17, 12, 0.08);
   box-shadow: var(--shadow);
+}
+
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(22, 17, 12, 0.08);
+  box-shadow: var(--shadow);
+}
+
+.lang-button {
+  border: 0;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.lang-button.is-active {
+  background: var(--ink);
+  color: #fff8ef;
 }
 
 .nav-link {
@@ -826,6 +859,7 @@ select {
   }
 
   .site-nav,
+  .site-nav-actions,
   .tracked-item {
     flex-direction: column;
     align-items: stretch;

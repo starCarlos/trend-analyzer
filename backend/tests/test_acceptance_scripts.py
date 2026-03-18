@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import unittest
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -27,7 +28,9 @@ from run_real_provider_acceptance import (  # noqa: E402
     summarize_completed_run,
 )
 from ui_smoke_test import (  # noqa: E402
+    build_inprocess_database_url,
     build_inprocess_remark,
+    configure_inprocess_database,
     load_inprocess_search_payload,
     summarize_backfill_failures,
 )
@@ -49,6 +52,26 @@ TEMPLATE_PATH = ROOT_DIR / "docs" / "real-provider-acceptance-record-template.md
 class AcceptanceScriptTestCase(unittest.TestCase):
     def read_template(self) -> str:
         return TEMPLATE_PATH.read_text(encoding="utf-8")
+
+    def test_build_inprocess_database_url_uses_explicit_value_when_provided(self) -> None:
+        self.assertEqual(
+            build_inprocess_database_url("sqlite:////tmp/trendscope-explicit.db"),
+            "sqlite:////tmp/trendscope-explicit.db",
+        )
+
+    def test_build_inprocess_database_url_defaults_to_temp_sqlite_file(self) -> None:
+        database_url = build_inprocess_database_url()
+
+        self.assertTrue(database_url.startswith("sqlite:///"))
+        self.assertIn("trendscope-ui-smoke-", database_url)
+        self.assertTrue(database_url.endswith(".db"))
+
+    def test_configure_inprocess_database_sets_database_url(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            database_url = configure_inprocess_database("sqlite:////tmp/trendscope-isolated.db")
+            self.assertEqual(database_url, "sqlite:////tmp/trendscope-isolated.db")
+            self.assertEqual(os.environ["DATABASE_URL"], "sqlite:////tmp/trendscope-isolated.db")
+            self.assertEqual(os.environ["APP_ENV"], "ui_smoke_inprocess")
 
     def test_command_markdown_uses_repo_relative_paths(self) -> None:
         command = [
