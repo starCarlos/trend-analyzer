@@ -1,29 +1,32 @@
 # TrendScope
 
 TrendScope is a local-first MVP scaffold for cross-platform trend analysis.
-The repository currently contains:
+It currently focuses on two upstream sources:
 
-- product and implementation docs in [`docs/`](./docs)
-- a FastAPI backend with deterministic mock collectors
-- a FastAPI-served search page that runs without Node.js
+- GitHub repository history and content
+- NewsNow snapshot data for repository queries and plain keywords
 
-The code intentionally focuses on the MVP path documented in:
+The project is built around a FastAPI backend that serves both the API and the default web UI directly.
 
-- [`docs/product-prd.md`](./docs/product-prd.md)
-- [`docs/technical-spec.md`](./docs/technical-spec.md)
-- [`docs/mvp-plan.md`](./docs/mvp-plan.md)
+## Current Status
 
-## Repository Layout
+- Runtime path: `backend/` FastAPI app is the primary product path
+- Default provider mode: `mock`
+- Real-provider validation: supported through CLI, `/tracked`, and acceptance scripts
+- Frontend note: `frontend/` is kept as a legacy Next.js prototype, not the current runtime
 
-```text
-backend/   FastAPI app, SQLite models, backfill workflow, static web UI
-frontend/  legacy Next.js UI prototype kept in repo, not required for runtime
-docs/      Product, technical, and planning documents
-```
+## What Works Today
 
-## Backend
+- Search GitHub repositories and plain keywords
+- Return partial results immediately and backfill missing data asynchronously
+- Show trend series, daily snapshot data, and content items
+- Track and untrack keywords from the UI
+- Run provider preflight, `Verify real`, and `Run smoke` from `/tracked`
+- Execute local acceptance and real-provider acceptance from scripts
 
-### Recommended Direct Run
+## Quick Start
+
+### Recommended Run
 
 ```bash
 cd backend
@@ -32,17 +35,11 @@ uv sync
 RELOAD=1 uv run python run_server.py
 ```
 
-这是当前推荐的运行方式：
+Open these URLs after startup:
 
-- 只启动 Python 后端
-- 后端会同时提供 API 和网页
-- 适合直接联调 API、CLI、scheduler 和 SQLite
-
-启动后访问：
-
-- 网页：`http://127.0.0.1:8000/`
-- 追踪页：`http://127.0.0.1:8000/tracked`
-- 健康检查：`http://127.0.0.1:8000/api/health`
+- Search page: `http://127.0.0.1:8000/`
+- Tracked page: `http://127.0.0.1:8000/tracked`
+- Health check: `http://127.0.0.1:8000/api/health`
 
 ### Alternative Start
 
@@ -51,43 +48,29 @@ cd backend
 uv run uvicorn app.main:app --reload
 ```
 
-### Environment
-
-Copy [`backend/.env.example`](./backend/.env.example) to `backend/.env` and adjust values if needed.
-
-If you want ready-made templates for real providers, use:
-
-- [`backend/.env.auto.example`](./backend/.env.auto.example)
-- [`backend/.env.real.example`](./backend/.env.real.example)
-- runtime guide: [`docs/provider-runtime.md`](./docs/provider-runtime.md)
-
-The backend now supports provider switching:
+## Provider Modes
 
 - `PROVIDER_MODE=mock`
-  default, fully offline, deterministic data
+  - Fully offline
+  - Deterministic data for local development and tests
 - `PROVIDER_MODE=real`
-  use GitHub and NewsNow directly
+  - Use GitHub and NewsNow directly
+  - Exposes real upstream failures instead of falling back
 - `PROVIDER_MODE=auto`
-  try real providers first, fall back to mock if requests fail
+  - Prefer real providers
+  - Fall back to mock when a real request fails
 
-The mock provider remains the default so local development and tests do not require external access.
+Ready-made env templates:
 
-### Automatic Collection
+- [`backend/.env.example`](./backend/.env.example)
+- [`backend/.env.auto.example`](./backend/.env.auto.example)
+- [`backend/.env.real.example`](./backend/.env.real.example)
 
-The backend now includes a built-in background scheduler for tracked keywords.
-It is disabled by default and controlled with:
+Runtime guide:
 
-- `SCHEDULER_ENABLED`
-- `SCHEDULER_INTERVAL_SECONDS`
-- `SCHEDULER_INITIAL_DELAY_SECONDS`
-- `SCHEDULER_PERIOD`
-- `SCHEDULER_RUN_BACKFILL_NOW`
+- [`docs/provider-runtime.md`](./docs/provider-runtime.md)
 
-### `uv` Notes
-
-- The backend dependency graph is locked with `uv.lock`
-- `uv sync` creates and manages `.venv` automatically
-- Use `uv run <command>` for all backend commands
+## Useful Commands
 
 ### Tests
 
@@ -110,43 +93,9 @@ uv run python -m app.cli provider-smoke openai/openai-python --probe-mode real
 uv run python -m app.cli collect-tracked
 ```
 
-## Web UI
-
-当前默认 UI 已由 FastAPI 直接提供，不需要 Node.js。
-
-仓库里的 `frontend/` 目录保留为旧版原型参考，但不是当前运行路径。
-
-当前可直接访问：
-
-- 搜索页：`/`
-- 追踪页：`/tracked`
-  - 包含追踪列表、scheduler 状态、provider 预检、`Verify real` 在线探测、`Run smoke` 联调总览、手动采集和最近采集日志
-
-`/tracked` 页的 `Provider preflight` 面板现在可直接完成：
-
-- 查看本地 provider 预检结果
-- 点击 `Verify real` 做轻量在线探测
-- 输入 smoke query / period，按需勾选 `Force real search`
-- 点击 `Run smoke` 查看 summary、search 状态、availability 和 next steps
-
-### Smoke Test Script
-
-The repository includes [`scripts/ui_smoke_test.py`](./scripts/ui_smoke_test.py) for browser-based local smoke testing.
-It expects:
-
-- backend running on `127.0.0.1:8000`
-- Playwright Chromium installed
-
-The script now covers both:
-
-- search page load + Track/Untrack readiness
-- `/tracked` page `Run smoke` provider flow
+## Acceptance Workflows
 
 ### Local Acceptance
-
-The repository also includes [`scripts/local_acceptance.py`](./scripts/local_acceptance.py) as a one-command local acceptance entry.
-
-Typical usage:
 
 ```bash
 backend/.venv/bin/python scripts/local_acceptance.py --skip-ui
@@ -154,18 +103,14 @@ backend/.venv/bin/python scripts/local_acceptance.py --ui-python /path/to/python
 backend/.venv/bin/python scripts/local_acceptance.py --skip-ui --json
 ```
 
-What it does:
+This script can:
 
-- run backend unit tests unless `--skip-tests`
-- check whether `http://127.0.0.1:8000/api/health` is already up
-- auto-start `backend/run_server.py` if needed unless `--require-running`
-- run `scripts/ui_smoke_test.py` unless `--skip-ui`
-- emit a machine-readable JSON summary when `--json` is enabled
+- run backend unit tests
+- check or auto-start the FastAPI server
+- execute UI smoke checks
+- emit machine-readable JSON output
 
-For a networked real-provider validation run, use:
-
-- [`docs/real-provider-acceptance.md`](./docs/real-provider-acceptance.md)
-- [`docs/real-provider-acceptance-record-template.md`](./docs/real-provider-acceptance-record-template.md)
+### Real Provider Acceptance
 
 One-command workflow:
 
@@ -174,15 +119,7 @@ backend/.venv/bin/python scripts/run_real_provider_acceptance.py --mode auto
 backend/.venv/bin/python scripts/run_real_provider_acceptance.py --mode auto --run-ui --ui-python /path/to/python-with-playwright
 ```
 
-What it does:
-
-- initialize or reuse the dated acceptance record
-- run `scripts/local_acceptance.py` first by default
-- update CLI sections automatically
-- when `--run-ui` is enabled, auto-start the FastAPI server if needed and write page validation results back to the record
-- auto-fill PRD mapping and final conclusion sections
-
-If you want the manual two-step flow instead:
+Manual two-step workflow:
 
 ```bash
 backend/.venv/bin/python scripts/init_real_provider_acceptance_record.py --mode auto
@@ -190,7 +127,31 @@ backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mod
 backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mode auto --run-ui --ui-python /path/to/python-with-playwright
 ```
 
-## MVP Endpoints
+Related docs:
+
+- [`docs/local-acceptance.md`](./docs/local-acceptance.md)
+- [`docs/real-provider-acceptance.md`](./docs/real-provider-acceptance.md)
+- [`docs/real-provider-acceptance-record-template.md`](./docs/real-provider-acceptance-record-template.md)
+- [`docs/acceptance-records/`](./docs/acceptance-records)
+
+## Repository Layout
+
+```text
+backend/   FastAPI app, SQLite models, provider workflows, static web UI
+frontend/  legacy Next.js prototype kept for reference
+docs/      product, technical, runtime, and acceptance documentation
+scripts/   local acceptance, real-provider acceptance, and smoke helpers
+```
+
+## Key Docs
+
+- [`docs/README.md`](./docs/README.md)
+- [`docs/product-prd.md`](./docs/product-prd.md)
+- [`docs/technical-spec.md`](./docs/technical-spec.md)
+- [`docs/mvp-plan.md`](./docs/mvp-plan.md)
+- [`docs/current-functional-flow.md`](./docs/current-functional-flow.md)
+
+## API Surface
 
 - `GET /api/health`
 - `GET /api/search?q=openai/openai-python&period=30d`
@@ -203,4 +164,5 @@ backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mod
 
 ## Notes
 
-- 当前推荐优先级是：先直接运行 Python 后端。
+- Current priority is still the Python backend path first.
+- If you only need the working product path, start from `backend/`, not `frontend/`.
