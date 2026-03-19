@@ -14,9 +14,9 @@ The hero below is composed from real screenshots of the current built-in web UI.
   <img src="./docs/images/readme-hero-overview.png" alt="TrendScope README hero composed from real repository search, keyword search, and tracked dashboard views" width="100%" />
 </p>
 
-| Raw keyword search | Raw tracked dashboard |
+| Raw openclaw search | Raw tracked dashboard |
 | --- | --- |
-| ![TrendScope keyword search view with a historical news line and related content](./docs/images/readme-search-keyword.png) | ![TrendScope tracked dashboard with tracked items and provider tools](./docs/images/readme-tracked-dashboard.png) |
+| ![TrendScope openclaw search view with a historical line and related content](./docs/images/readme-search-openclaw.png) | ![TrendScope tracked dashboard with tracked items and provider tools](./docs/images/readme-tracked-dashboard.png) |
 
 ## Highlights
 
