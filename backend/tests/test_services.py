@@ -1522,6 +1522,76 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(payload.availability["newsnow_snapshot"], "not_applicable")
         self.assertEqual(payload.availability["google_news_archive"], "ready")
 
+    def test_keyword_search_keeps_inline_history_when_later_archive_source_fails(self) -> None:
+        query = f"inline-partial-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        class PartialInlineHistoryProvider:
+            name = "inline-partial"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                raise AssertionError(f"unexpected inline news snapshot request for {keyword_query}")
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                self_query = keyword_query
+                return [
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key=f"{self_query}:archive:1",
+                        title=f"{self_query} archive item 1",
+                        url="https://example.com/archive/1",
+                        summary="archive-1",
+                        author="provider",
+                        published_at=today - timedelta(days=2),
+                        meta_json="{}",
+                    ),
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key=f"{self_query}:archive:2",
+                        title=f"{self_query} archive item 2",
+                        url="https://example.com/archive/2",
+                        summary="archive-2",
+                        author="provider",
+                        published_at=today - timedelta(days=1),
+                        meta_json="{}",
+                    ),
+                ]
+
+            def fetch_direct_rss_archive(self, keyword_query: str):
+                return []
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                raise RuntimeError("gdelt overloaded")
+
+        with patch("app.services.search.get_data_provider", return_value=PartialInlineHistoryProvider()):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        history_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in history_series.points], [1.0, 1.0])
+        self.assertTrue(any(item.source == "google_news" for item in payload.content_items))
+        self.assertEqual(payload.availability["google_news_archive"], "ready")
+        self.assertEqual(payload.availability["gdelt_archive"], "missing")
+        self.assertIsNone(payload.backfill_job)
+
     def test_keyword_search_prefetches_direct_rss_inline_on_first_lookup(self) -> None:
         query = f"rss-inline-{uuid4().hex[:8]}"
         today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)

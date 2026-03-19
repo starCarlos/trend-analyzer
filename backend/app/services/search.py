@@ -289,7 +289,6 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
             try:
                 archive_items = archive_fetcher(archive_query)
             except Exception:
-                db.rollback()
                 archive_items = []
                 continue
             if archive_items:
@@ -311,7 +310,7 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
         try:
             snapshot_points, snapshot_items = provider.fetch_newsnow_snapshot(keyword.normalized_query)
         except Exception:
-            db.rollback()
+            snapshot_points, snapshot_items = [], []
         else:
             for point in snapshot_points:
                 _upsert_trend_point(db, keyword.id, point)
