@@ -1,5 +1,8 @@
 # 2026-03-18 Real Acceptance Handoff
 
+> Public-repo note:
+> local absolute paths and stale local ports were normalized in this copy.
+
 ## 1. 先读这些文件
 
 - `docs/acceptance-records/2026-03-18-real-provider-acceptance.md`
@@ -137,7 +140,7 @@
 先回到仓库根目录：
 
 ```bash
-cd /home/admin_wsl/sunnet/trend-analyzer
+cd <repo-root>
 ```
 
 重新写回 2026-03-18 验收记录：
@@ -154,7 +157,7 @@ backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py \
 如果想先单独确认 CLI 与补充回归结果：
 
 ```bash
-cd /home/admin_wsl/sunnet/trend-analyzer/backend
+cd backend
 .venv/bin/python -m app.cli provider-verify --probe-mode real
 .venv/bin/python -m app.cli provider-smoke anthropic/claude-code --period 30d --probe-mode real
 ```
@@ -162,10 +165,10 @@ cd /home/admin_wsl/sunnet/trend-analyzer/backend
 补充检查裸仓库名解析：
 
 ```bash
-curl --noproxy '*' -fsS 'http://127.0.0.1:5060/api/search?q=openclaw&period=30d'
+curl --noproxy '*' -fsS 'http://127.0.0.1:5081/api/search?q=openclaw&period=30d'
 backend/.venv/bin/python scripts/ui_smoke_test.py \
   --driver inprocess \
-  --base-url http://127.0.0.1:5060 \
+  --base-url http://127.0.0.1:5081 \
   --repo-query openclaw \
   --keyword-query mcp \
   --output-json /tmp/trendscope-openclaw-ui-smoke.json
@@ -190,7 +193,7 @@ backend/.venv/bin/python backend/run_server.py
 以下测试已通过：
 
 ```bash
-cd /home/admin_wsl/sunnet/trend-analyzer
+cd <repo-root>
 backend/.venv/bin/python -m unittest backend.tests.test_services -v
 backend/.venv/bin/python -m unittest backend.tests.test_acceptance_scripts -v
 ```

@@ -3,14 +3,17 @@
 > 使用说明：
 > 复制本文件，按一次真实联调验收填写一份记录。
 > 也可以先运行 `scripts/init_real_provider_acceptance_record.py` 自动生成一份带日期和环境信息的记录文件。
+>
+> 公开仓库副本说明：
+> 本文件已对操作者信息、机器标识、绝对路径和本地端口做脱敏或归一化处理。
 
 ## 1. 基本信息
 
 - 验收日期：2026-03-18
-- 验收人：admin_wsl
-- 机器环境：sunjiaang
-- 操作系统：Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39
-- Python 解释器：/home/admin_wsl/sunnet/trend-analyzer/backend/.venv/bin/python
+- 验收人：已脱敏
+- 机器环境：已脱敏
+- 操作系统：Linux（WSL2，已脱敏）
+- Python 解释器：backend/.venv/bin/python
 - 网络环境：
 - 是否使用代理：是
 - 验收模式：real
@@ -27,7 +30,7 @@
 ## 3. 本地验收前置结果
 
 - 是否先运行 `scripts/local_acceptance.py`：`是`
-- 命令：`backend/.venv/bin/python scripts/local_acceptance.py --base-url http://127.0.0.1:5060 --backend-python backend/.venv/bin/python --ui-python backend/.venv/bin/python --startup-timeout 30.0 --request-timeout 2.0 --json --skip-ui`
+- 命令：`backend/.venv/bin/python scripts/local_acceptance.py --base-url http://127.0.0.1:5081 --backend-python backend/.venv/bin/python --ui-python backend/.venv/bin/python --startup-timeout 30.0 --request-timeout 2.0 --json --skip-ui`
 - 结果：`通过`
 - 备注：[acceptance] Local acceptance passed
 
@@ -233,23 +236,23 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
 
 ### 7.1 GitHub 项目搜索
 
-- 验证地址：http://127.0.0.1:5060/?q=openai%2Fopenai-python&period=30d
+- 验证地址：http://127.0.0.1:5081/?q=openai%2Fopenai-python&period=30d
 - 是否可打开：`是`
 - 是否看到今日快照：`是`
 - 是否看到 GitHub 内容流：`是`
 - 是否看到趋势图：`是`
 - `Track/Untrack` 是否正常：`是`
-- 截图路径：/tmp/trendscope-real-acceptance-5060/trendscope-search-smoke-evidence.json
-- 备注：自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance-5060/trendscope-search-smoke-evidence.json
+- 截图路径：/tmp/trendscope-real-acceptance/trendscope-search-smoke-evidence.json
+- 备注：自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance/trendscope-search-smoke-evidence.json
 
 ### 7.2 普通关键词搜索
 
-- 验证地址：http://127.0.0.1:5060/?q=mcp&period=30d
+- 验证地址：http://127.0.0.1:5081/?q=mcp&period=30d
 - 是否看到 NewsNow 快照：`是`
 - 是否看到内容列表：`是`
 - 是否看到累计提示或累计曲线：`是`
-- 截图路径：/tmp/trendscope-real-acceptance-5060/trendscope-keyword-smoke-evidence.json
-- 备注：自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance-5060/trendscope-keyword-smoke-evidence.json
+- 截图路径：/tmp/trendscope-real-acceptance/trendscope-keyword-smoke-evidence.json
+- 备注：自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance/trendscope-keyword-smoke-evidence.json
 
 ### 7.3 `/tracked` 页
 
@@ -257,12 +260,12 @@ backend/.venv/bin/python -m app.cli provider-smoke openai/openai-python --period
 - `Verify real` 是否正常：`是`
 - `Run smoke` 是否正常：`是`
 - 是否看到 collect runs：`是`
-- 截图路径：/tmp/trendscope-real-acceptance-5060/trendscope-tracked-smoke-evidence.json
-- 备注：Triggered 1 collection run(s). Inprocess 取证仅重放当前 repo query，避免全量 tracked collection 拖慢验收。；自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance-5060/trendscope-tracked-smoke-evidence.json
+- 截图路径：/tmp/trendscope-real-acceptance/trendscope-tracked-smoke-evidence.json
+- 备注：Triggered 1 collection run(s). Inprocess 取证仅重放当前 repo query，避免全量 tracked collection 拖慢验收。；自动页面验收使用 inprocess driver；结果按回填完成后的页面状态判定；当前环境未生成浏览器截图；证据文件：/tmp/trendscope-real-acceptance/trendscope-tracked-smoke-evidence.json
 
 ### 7.4 补充回归：裸仓库名搜索
 
-- 验证地址：http://127.0.0.1:5060/?q=openclaw&period=30d
+- 验证地址：http://127.0.0.1:5081/?q=openclaw&period=30d
 - 是否自动识别为 GitHub repository：`是`
 - 规范化结果是否为 `openclaw/openclaw`：`是`
 - 是否看到 GitHub 内容流：`是`

@@ -15,4 +15,5 @@ coverage/
 backend/.data/
 backend/trendscope.db
 trendscope.db
+test-results/
 *:Zone.Identifier

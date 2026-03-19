@@ -3,14 +3,17 @@
 > 使用说明：
 > 复制本文件，按一次真实联调验收填写一份记录。
 > 也可以先运行 `scripts/init_real_provider_acceptance_record.py` 自动生成一份带日期和环境信息的记录文件。
+>
+> 公开仓库副本说明：
+> 本文件已对绝对路径和本地端口做归一化处理。
 
 ## 1. 基本信息
 
 - 验收日期：2026-03-17
 - 验收人：
 - 机器环境：
-- 操作系统：Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39
-- Python 解释器：/home/admin_wsl/sunnet/trend-analyzer/backend/.venv/bin/python
+- 操作系统：Linux（WSL2，已脱敏）
+- Python 解释器：backend/.venv/bin/python
 - 网络环境：
 - 是否使用代理：
 - 验收模式：real
@@ -27,7 +30,7 @@
 ## 3. 本地验收前置结果
 
 - 是否先运行 `scripts/local_acceptance.py`：`是`
-- 命令：`backend/.venv/bin/python scripts/local_acceptance.py --base-url http://127.0.0.1:8000 --backend-python backend/.venv/bin/python --ui-python /usr/bin/python3 --startup-timeout 30.0 --request-timeout 2.0 --json --skip-ui`
+- 命令：`backend/.venv/bin/python scripts/local_acceptance.py --base-url http://127.0.0.1:5081 --backend-python backend/.venv/bin/python --ui-python backend/.venv/bin/python --startup-timeout 30.0 --request-timeout 2.0 --json --skip-ui`
 - 结果：`通过`
 - 备注：health.env=probe_blocked；provider_mode=unknown；tests=是；ui=否；backend_already_running=否；backend_auto_started=是
 
@@ -232,7 +235,7 @@ backend/.venv/bin/python -m app.cli provider-smoke anthropic/claude-code --probe
 
 ### 7.1 GitHub 项目搜索
 
-- 验证地址：http://127.0.0.1:8000/?q=anthropic%2Fclaude-code&period=30d
+- 验证地址：http://127.0.0.1:5081/?q=anthropic%2Fclaude-code&period=30d
 - 是否可打开：`是`
 - 是否看到今日快照：`是`
 - 是否看到 GitHub 内容流：`否`
@@ -243,7 +246,7 @@ backend/.venv/bin/python -m app.cli provider-smoke anthropic/claude-code --probe
 
 ### 7.2 普通关键词搜索
 
-- 验证地址：http://127.0.0.1:8000/?q=mcp&period=30d
+- 验证地址：http://127.0.0.1:5081/?q=mcp&period=30d
 - 是否看到 NewsNow 快照：`是`
 - 是否看到内容列表：`否`
 - 是否看到累计提示或累计曲线：`是`
