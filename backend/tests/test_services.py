@@ -774,6 +774,43 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(items[1].author, "The Verge")
         self.assertTrue(all(item.published_at is not None for item in items))
 
+    def test_real_provider_fetch_direct_rss_archive_ignores_summary_only_matches(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                direct_rss_enabled=True,
+                direct_rss_max_items=10,
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        payload = """
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>Daily roundup</title>
+              <link>https://example.com/roundup</link>
+              <pubDate>2026-03-18 10:30:00 +0800</pubDate>
+              <description><![CDATA[OpenClaw appears in the summary only.]]></description>
+              <author>Example</author>
+            </item>
+            <item>
+              <title>OpenClaw ships a new desktop workflow</title>
+              <link>https://example.com/openclaw</link>
+              <pubDate>2026-03-18 11:30:00 +0800</pubDate>
+              <description><![CDATA[OpenClaw adds automation controls.]]></description>
+              <author>Example</author>
+            </item>
+          </channel>
+        </rss>
+        """
+
+        with patch.object(provider, "_request_text", return_value=payload):
+            items = provider.fetch_direct_rss_archive("openclaw")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].title, "OpenClaw ships a new desktop workflow")
+
     def test_provider_smoke_skips_search_when_probe_fails(self) -> None:
         smoke = run_provider_smoke(
             query="anthropic/claude-code",
@@ -1438,11 +1475,12 @@ class ServiceTestCase(unittest.TestCase):
 
     def test_search_filters_stored_gdelt_noise_and_rebuilds_series(self) -> None:
         bucket_start = datetime(2026, 3, 17, 0, 0, 0)
+        repo_query = f"owner-{uuid4().hex[:8]}/openclaw"
         keyword = Keyword(
-            raw_query="openclaw/openclaw",
-            normalized_query="openclaw/openclaw",
+            raw_query=repo_query,
+            normalized_query=repo_query,
             kind="github_repo",
-            target_ref="openclaw/openclaw",
+            target_ref=repo_query,
         )
         self.db.add(keyword)
         self.db.flush()
@@ -1509,7 +1547,7 @@ class ServiceTestCase(unittest.TestCase):
             payload = search_keyword(
                 db=self.db,
                 background_tasks=BackgroundTasks(),
-                query="openclaw/openclaw",
+                query=repo_query,
                 period="all",
                 content_source="gdelt",
             )
@@ -1618,6 +1656,84 @@ class ServiceTestCase(unittest.TestCase):
             [(point.bucket_start, point.value) for point in history_series.points],
             [(first_day, 1.0), (second_day, 1.0)],
         )
+
+    def test_search_filters_summary_only_direct_rss_noise_and_rebuilds_series(self) -> None:
+        bucket_start = datetime(2026, 3, 17, 0, 0, 0)
+        repo_query = f"owner-{uuid4().hex[:8]}/openclaw"
+        keyword = Keyword(
+            raw_query=repo_query,
+            normalized_query=repo_query,
+            kind="github_repo",
+            target_ref=repo_query,
+        )
+        self.db.add(keyword)
+        self.db.flush()
+
+        self.db.add_all(
+            [
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="direct_rss",
+                    source_type="archive",
+                    external_key="direct-rss-strong",
+                    title="OpenClaw ships a desktop agent update",
+                    url="https://example.com/openclaw-update",
+                    summary="strong",
+                    author="Publisher",
+                    published_at=datetime(2026, 3, 17, 10, 0, 0),
+                    meta_json="{}",
+                ),
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="direct_rss",
+                    source_type="archive",
+                    external_key="direct-rss-weak",
+                    title="Daily roundup",
+                    url="https://example.com/roundup",
+                    summary="OpenClaw is only mentioned in the summary.",
+                    author="Publisher",
+                    published_at=datetime(2026, 3, 17, 11, 0, 0),
+                    meta_json="{}",
+                ),
+            ]
+        )
+        self.db.add(
+            TrendPoint(
+                keyword_id=keyword.id,
+                source="direct_rss",
+                metric="matched_item_count",
+                source_type="timeline",
+                bucket_granularity="day",
+                bucket_start=bucket_start,
+                value=2.0,
+                raw_json="{}",
+            )
+        )
+        self.db.commit()
+
+        with (
+            patch("app.services.search.get_settings", return_value=Settings(provider_mode="real")),
+            patch("app.services.search._prefetch_content_history_inline", return_value=False),
+            patch("app.services.search._maybe_schedule_backfill", return_value=None),
+        ):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=repo_query,
+                period="all",
+                content_source="direct_rss",
+            )
+
+        self.assertEqual(len(payload.content_items), 1)
+        self.assertEqual(payload.content_items[0].title, "OpenClaw ships a desktop agent update")
+        direct_rss_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "direct_rss"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in direct_rss_series.points], [1.0])
 
     def test_repository_search_prefetches_google_news_inline_and_derives_timeline(self) -> None:
         repo_name = f"repo-{uuid4().hex[:8]}"

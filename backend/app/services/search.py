@@ -401,12 +401,27 @@ def _filter_visible_contents(keyword: Keyword, contents: list[ContentItem]) -> l
         return contents
 
     visible: list[ContentItem] = []
-    gdelt_queries = _archive_queries(keyword)
+    archive_queries = _archive_queries(keyword)
+    gdelt_queries = archive_queries
     seen_gdelt_titles: set[str] = set()
     kept_gdelt_title_groups: list[tuple[date, set[str]]] = []
 
     for item in contents:
         if _is_synthetic_json(item.meta_json):
+            continue
+        if item.source == "direct_rss":
+            if not any(
+                RealDataProvider._archive_match_strength(
+                    query,
+                    title=item.title,
+                    summary=item.summary,
+                    url=item.url,
+                )
+                == "strong"
+                for query in archive_queries
+            ):
+                continue
+            visible.append(item)
             continue
         if item.source != "gdelt":
             visible.append(item)
@@ -816,14 +831,15 @@ def search_keyword(
             .limit(20)
         )
     )
-    gdelt_contents = list(
+    archive_history_contents = list(
         db.scalars(
             select(ContentItem)
             .where(
                 ContentItem.keyword_id == keyword.id,
-                ContentItem.source == "gdelt",
+                ContentItem.source.in_(ARCHIVE_CONTENT_SOURCES),
+                ContentItem.published_at.is_not(None),
             )
-            .order_by(desc(ContentItem.published_at), desc(ContentItem.fetched_at))
+            .order_by(ContentItem.published_at.asc(), ContentItem.id.asc())
         )
     )
     keyword_history_contents: list[ContentItem] = []
@@ -856,12 +872,21 @@ def search_keyword(
         days=days,
         parsed_content_source=parsed_content_source,
     )
-    filtered_gdelt_contents = _filter_content(_filter_visible_contents(keyword, gdelt_contents), days)
+    filtered_archive_history_contents = _filter_content(
+        _filter_visible_contents(keyword, archive_history_contents),
+        days,
+    )
     filtered_keyword_history_contents = _filter_content(
         _filter_visible_contents(keyword, keyword_history_contents),
         days,
     )
     series = _build_series(filtered_points)
+    for source in ARCHIVE_CONTENT_SOURCES:
+        series = _replace_archive_series(
+            series,
+            source=source,
+            replacement=_build_archive_series_from_contents(filtered_archive_history_contents, source),
+        )
     if keyword.kind == "keyword":
         series = _replace_archive_series(
             series,
@@ -869,11 +894,6 @@ def search_keyword(
             replacement=_build_keyword_history_series_from_contents(filtered_keyword_history_contents),
         )
     series = _apply_trend_semantics(keyword, series)
-    series = _replace_archive_series(
-        series,
-        source="gdelt",
-        replacement=_build_archive_series_from_contents(filtered_gdelt_contents, "gdelt"),
-    )
     snapshot = _build_snapshot(trend_points, snapshot_contents)
     availability = _availability(keyword, job, trend_points, snapshot_contents)
 

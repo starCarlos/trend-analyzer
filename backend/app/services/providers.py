@@ -580,6 +580,35 @@ class RealDataProvider:
         return " ".join(SEARCH_TOKEN_RE.findall(value.casefold()))
 
     @classmethod
+    def _archive_text_matches_query(cls, query: str, value: str | None) -> bool:
+        normalized_query = " ".join(query.split()).casefold()
+        if not normalized_query or not value:
+            return False
+        if HAS_CJK_RE.search(normalized_query):
+            return normalized_query in value.casefold()
+
+        tokens = cls._gdelt_tokens(normalized_query)
+        if not tokens:
+            return False
+        value_tokens = set(SEARCH_TOKEN_RE.findall(value.casefold()))
+        return all(token in value_tokens for token in tokens)
+
+    @classmethod
+    def _archive_match_strength(
+        cls,
+        query: str,
+        *,
+        title: str | None,
+        summary: str | None = None,
+        url: str | None = None,
+    ) -> str:
+        if cls._archive_text_matches_query(query, title) or cls._archive_text_matches_query(query, url):
+            return "strong"
+        if cls._archive_text_matches_query(query, summary):
+            return "weak"
+        return "none"
+
+    @classmethod
     def _gdelt_title_key(cls, title: str) -> str:
         return cls._gdelt_match_text(title)
 
@@ -889,7 +918,6 @@ class RealDataProvider:
         except ET.ParseError as exc:
             raise ProviderError(f"Invalid direct RSS payload from {request_url}: {exc}") from exc
 
-        query_lc = query.casefold()
         items: list[ContentItemInput] = []
 
         if root.tag.endswith("rss"):
@@ -897,16 +925,17 @@ class RealDataProvider:
             for index, node in enumerate(nodes):
                 title = self._clean_html_text(node.findtext("title"))
                 description = self._clean_html_text(node.findtext("description"))
+                link = self._clean_html_text(node.findtext("link"))
                 author = (
                     self._clean_html_text(node.findtext("author"))
                     or self._clean_html_text(node.findtext("{http://purl.org/dc/elements/1.1/}creator"))
                     or source_label
                 )
-                searchable_text = " ".join(part for part in (title, description, author) if part).casefold()
-                if not title or query_lc not in searchable_text:
+                if not title:
+                    continue
+                if self._archive_match_strength(query, title=title, summary=description, url=link) != "strong":
                     continue
 
-                link = self._clean_html_text(node.findtext("link"))
                 published_at = self._parse_feed_datetime(node.findtext("pubDate") or node.findtext("updated"))
                 if not published_at:
                     continue
@@ -947,9 +976,6 @@ class RealDataProvider:
                 author = self._clean_html_text(
                     node.findtext("atom:author/atom:name", namespaces=ATOM_NAMESPACE)
                 ) or source_label
-                searchable_text = " ".join(part for part in (title, summary, author) if part).casefold()
-                if not title or query_lc not in searchable_text:
-                    continue
 
                 link_node = next(
                     (
@@ -960,6 +986,11 @@ class RealDataProvider:
                     None,
                 )
                 link = self._clean_html_text(link_node.get("href")) if link_node is not None else None
+                if not title:
+                    continue
+                if self._archive_match_strength(query, title=title, summary=summary, url=link) != "strong":
+                    continue
+
                 published_at = self._parse_feed_datetime(
                     node.findtext("atom:updated", namespaces=ATOM_NAMESPACE)
                     or node.findtext("atom:published", namespaces=ATOM_NAMESPACE)
