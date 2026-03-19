@@ -8,13 +8,13 @@ The current product path is `backend/`: a FastAPI application that serves the AP
 
 ## Product Preview
 
-These are real screenshots from the current built-in web UI.
+The hero below is composed from real screenshots of the current built-in web UI.
 
 <p align="center">
-  <img src="./docs/images/readme-search-repo.png" alt="TrendScope repository search view with GitHub history, signal summary, and content items" width="100%" />
+  <img src="./docs/images/readme-hero-overview.png" alt="TrendScope README hero composed from real repository search, keyword search, and tracked dashboard views" width="100%" />
 </p>
 
-| Keyword search | Tracked dashboard |
+| Raw keyword search | Raw tracked dashboard |
 | --- | --- |
 | ![TrendScope keyword search view with a historical news line and related content](./docs/images/readme-search-keyword.png) | ![TrendScope tracked dashboard with tracked items and provider tools](./docs/images/readme-tracked-dashboard.png) |
 

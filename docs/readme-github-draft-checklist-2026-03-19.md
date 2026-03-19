@@ -13,3 +13,6 @@ Rewrite the repository README so the GitHub homepage quickly explains what Trend
 - [x] Mirror the same structure in the Chinese README
 - [x] Move real screenshots into the README hero area
 - [x] Review the final diff and verify referenced commands and files still exist
+- [x] Create a cleaner composite hero preview from real screenshots
+- [x] Rebalance the README opening section around the new hero image
+- [x] Re-check image references, file size, and git status after the second pass
