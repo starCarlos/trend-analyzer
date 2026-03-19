@@ -1,38 +1,38 @@
 # TrendScope
 
-TrendScope is a local-first MVP scaffold for cross-platform trend analysis.
-It currently focuses on two upstream sources:
+TrendScope is a local-first trend analysis app built around a FastAPI backend that serves both the API and the default web UI directly.
 
-- GitHub repository history and content
-- NewsNow snapshot data for repository queries and plain keywords
-
-The project is built around a FastAPI backend that serves both the API and the default web UI directly.
+The current product path is `backend/`. The `frontend/` directory is a legacy Next.js prototype kept only for reference.
 
 ## Current Status
 
-- Runtime path: `backend/` FastAPI app is the primary product path
+- Primary runtime: `FastAPI + SQLite + built-in static web UI`
+- Default local URL: `http://127.0.0.1:5081`
 - Default provider mode: `mock`
-- Real-provider validation: supported through CLI, `/tracked`, and acceptance scripts
-- Frontend note: `frontend/` is kept as a legacy Next.js prototype, not the current runtime
+- Core real providers: `GitHub` and `NewsNow`
+- Optional archive/history providers: `Google News`, `Direct RSS`, and `GDELT`
+- Real-provider validation is available from `CLI`, `/tracked`, and acceptance scripts
 
 ## What Works Today
 
-- Search GitHub repositories and plain keywords
-- Return partial results immediately and backfill missing data asynchronously
-- Show trend series, daily snapshot data, and content items
-- Track and untrack keywords from the UI
-- Run provider preflight, `Verify real`, and `Run smoke` from `/tracked`
-- Execute local acceptance and real-provider acceptance from scripts
+- Search GitHub URLs, `owner/repo`, plain keywords, and bare repo names that resolve cleanly
+- Expand plain-keyword searches across Chinese and English variants, then merge and dedupe results
+- Return partial results immediately and backfill missing history/content asynchronously
+- Show trend lines, daily snapshot cards, availability states, and content items
+- Track and untrack queries from the search page
+- Manage tracked items on `/tracked`
+- Run provider preflight, `Verify real`, `Run smoke`, scheduler checks, and manual collection from `/tracked`
+- Execute local acceptance and real-provider acceptance, including isolated scheduler and failure-readability probes
 
 ## Quick Start
 
-### Recommended Run
+### Recommended Local Run
 
 ```bash
 cd backend
 cp .env.example .env
 uv sync
-RELOAD=1 uv run python run_server.py
+PORT=5081 RELOAD=1 uv run python run_server.py
 ```
 
 Open these URLs after startup:
@@ -41,11 +41,19 @@ Open these URLs after startup:
 - Tracked page: `http://127.0.0.1:5081/tracked`
 - Health check: `http://127.0.0.1:5081/api/health`
 
+### Docker Run
+
+```bash
+docker compose up --build
+```
+
+The compose file also exposes the app on `http://127.0.0.1:5081`.
+
 ### Alternative Start
 
 ```bash
 cd backend
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --host 127.0.0.1 --port 5081 --reload
 ```
 
 ## Provider Modes
@@ -54,10 +62,10 @@ uv run uvicorn app.main:app --reload
   - Fully offline
   - Deterministic data for local development and tests
 - `PROVIDER_MODE=real`
-  - Use GitHub and NewsNow directly
-  - Exposes real upstream failures instead of falling back
+  - Use real upstreams directly
+  - Expose upstream failures instead of falling back
 - `PROVIDER_MODE=auto`
-  - Prefer real providers
+  - Prefer real upstreams
   - Fall back to mock when a real request fails
 
 Ready-made env templates:
@@ -66,16 +74,47 @@ Ready-made env templates:
 - [`backend/.env.auto.example`](./backend/.env.auto.example)
 - [`backend/.env.real.example`](./backend/.env.real.example)
 
-Archive relevance tuning:
-
-- `ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON`
-  - Optional JSON map for weak or ambiguous keywords
-  - Example: `{"manus":["ai","agent","agents"],"claude":["anthropic","code","ai"]}`
-  - Used by the shared archive relevance layer for `GDELT` and read-path filtering
-
-Runtime guide:
+Provider runtime guide:
 
 - [`docs/provider-runtime.md`](./docs/provider-runtime.md)
+
+## Real-Provider Coverage
+
+### Core Providers
+
+- `GitHub`
+  - repository history
+  - repository content
+- `NewsNow`
+  - daily snapshot
+  - content stream
+
+### Optional Archive and History Providers
+
+- `Google News`
+- `Direct RSS`
+- `GDELT`
+
+These optional providers enrich keyword history and content completeness, but the default real-search blocking path still centers on `GitHub` and `NewsNow`.
+
+### Useful Runtime Knobs
+
+- `NEWSNOW_SOURCE_IDS`
+- `GOOGLE_NEWS_ENABLED`
+- `DIRECT_RSS_ENABLED`
+- `GDELT_ENABLED`
+- `ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON`
+- `REQUEST_TIMEOUT_SECONDS`
+- `HTTP_PROXY`
+
+`ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON` lets you constrain ambiguous keywords with extra context. Example:
+
+```json
+{
+  "manus": ["ai", "agent", "agents"],
+  "claude": ["anthropic", "code", "ai"]
+}
+```
 
 ## Useful Commands
 
@@ -91,14 +130,35 @@ uv run python -m unittest discover -s tests -v
 ```bash
 cd backend
 uv run python -m app.cli health
-uv run python -m app.cli search openai/openai-python
+uv run python -m app.cli search openai/openai-python --period 30d
 uv run python -m app.cli track openai/openai-python
+uv run python -m app.cli list-tracked
 uv run python -m app.cli scheduler-status
 uv run python -m app.cli provider-status
 uv run python -m app.cli provider-verify --probe-mode real
-uv run python -m app.cli provider-smoke openai/openai-python --probe-mode real
-uv run python -m app.cli collect-tracked
+uv run python -m app.cli provider-smoke openai/openai-python --period 30d --probe-mode real
+uv run python -m app.cli collect-tracked --period 30d
 ```
+
+### API Examples
+
+```bash
+curl 'http://127.0.0.1:5081/api/health'
+curl 'http://127.0.0.1:5081/api/search?q=openai/openai-python&period=30d'
+curl 'http://127.0.0.1:5081/api/search?q=oil&period=30d&content_source=google_news'
+curl 'http://127.0.0.1:5081/api/keywords?tracked_only=true'
+curl 'http://127.0.0.1:5081/api/collect/status'
+curl 'http://127.0.0.1:5081/api/collect/logs?limit=20'
+```
+
+`content_source` currently supports:
+
+- `all`
+- `github`
+- `newsnow`
+- `google_news`
+- `direct_rss`
+- `gdelt`
 
 ## Acceptance Workflows
 
@@ -118,7 +178,7 @@ This script can:
 - execute UI smoke checks
 - emit machine-readable JSON output
 
-### Real Provider Acceptance
+### Real-Provider Acceptance
 
 One-command workflow:
 
@@ -127,13 +187,19 @@ backend/.venv/bin/python scripts/run_real_provider_acceptance.py --mode auto
 backend/.venv/bin/python scripts/run_real_provider_acceptance.py --mode auto --run-ui --ui-python /path/to/python-with-playwright
 ```
 
-Manual two-step workflow:
+Manual record workflow:
 
 ```bash
 backend/.venv/bin/python scripts/init_real_provider_acceptance_record.py --mode auto
 backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mode auto
 backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mode auto --run-ui --ui-python /path/to/python-with-playwright
 ```
+
+In `real` mode, the record updater now also runs isolated temporary probes to verify:
+
+- empty-database startup
+- scheduler-driven tracked collection
+- readable failure states for `search`, `backfill`, and `collect`
 
 Related docs:
 
@@ -145,7 +211,7 @@ Related docs:
 ## Repository Layout
 
 ```text
-backend/   FastAPI app, SQLite models, provider workflows, static web UI
+backend/   FastAPI app, SQLite models, provider workflows, CLI, and static web UI
 frontend/  legacy Next.js prototype kept for reference
 docs/      product, technical, runtime, and acceptance documentation
 scripts/   local acceptance, real-provider acceptance, and smoke helpers
@@ -157,21 +223,26 @@ scripts/   local acceptance, real-provider acceptance, and smoke helpers
 - [`docs/README.md`](./docs/README.md)
 - [`docs/product-prd.md`](./docs/product-prd.md)
 - [`docs/technical-spec.md`](./docs/technical-spec.md)
-- [`docs/mvp-plan.md`](./docs/mvp-plan.md)
 - [`docs/current-functional-flow.md`](./docs/current-functional-flow.md)
+- [`docs/mvp-completion-checklist.md`](./docs/mvp-completion-checklist.md)
 
 ## API Surface
 
 - `GET /api/health`
-- `GET /api/search?q=openai/openai-python&period=30d`
+- `GET /api/search?q=<query>&period=<7d|30d|90d|all>&content_source=<...>`
 - `GET /api/keywords/{id}/backfill-status`
+- `GET /api/keywords`
+- `POST /api/keywords`
+- `POST /api/keywords/{id}/track`
+- `DELETE /api/keywords/{id}/track`
+- `POST /api/collect/trigger`
+- `GET /api/collect/status`
+- `GET /api/collect/logs`
 - `GET /api/provider-status`
 - `POST /api/provider-verify`
 - `POST /api/provider-smoke`
-- `POST /api/keywords/{id}/track`
-- `DELETE /api/keywords/{id}/track`
 
 ## Notes
 
-- Current priority is still the Python backend path first.
+- Current priority is the Python backend path first.
 - If you only need the working product path, start from `backend/`, not `frontend/`.
