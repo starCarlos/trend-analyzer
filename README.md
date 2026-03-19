@@ -242,6 +242,14 @@ scripts/   local acceptance, real-provider acceptance, and smoke helpers
 - `POST /api/provider-verify`
 - `POST /api/provider-smoke`
 
+## License
+
+The repository code is licensed under [`Apache-2.0`](./LICENSE).
+
+That license covers this repository's code and bundled documentation. It does not
+change the terms of third-party data sources or trademarks such as GitHub,
+NewsNow, Google News, Direct RSS feeds, or GDELT.
+
 ## Notes
 
 - Current priority is the Python backend path first.
