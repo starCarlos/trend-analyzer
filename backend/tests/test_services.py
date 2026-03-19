@@ -309,7 +309,20 @@ class ServiceTestCase(unittest.TestCase):
                 )
             if "api.gdeltproject.org" in url:
                 return (json.dumps({"articles": [{"title": "OpenClaw headline"}]}), {})
-            raise AssertionError(url)
+            return (
+                """
+                <rss version="2.0">
+                  <channel>
+                    <item>
+                      <title>OpenClaw headline</title>
+                      <link>https://example.com/openclaw</link>
+                      <pubDate>Tue, 17 Mar 2026 04:42:44 GMT</pubDate>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                {},
+            )
 
         payload = verify_provider_connectivity(
             settings=Settings(
@@ -414,6 +427,91 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(payload.google_news.status, "skipped")
         self.assertEqual(payload.gdelt.status, "skipped")
         self.assertIn("跳过", payload.github.message)
+
+    def test_provider_verify_marks_archive_probe_failures_as_non_blocking(self) -> None:
+        def fake_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del headers
+            if url.endswith("/rate_limit"):
+                return ({"rate": {"remaining": 4999, "limit": 5000}}, {})
+            return ({"items": [{"title": "demo"}]}, {})
+
+        def fake_request_text(url: str, headers: dict[str, str]) -> tuple[str, dict[str, str]]:
+            del headers
+            if "news.google.com" in url:
+                raise RuntimeError("HTTP 429")
+            if "api.gdeltproject.org" in url:
+                return (json.dumps({"articles": [{"title": "OpenClaw headline"}]}), {})
+            return (
+                """
+                <rss version="2.0">
+                  <channel>
+                    <item><title>OpenClaw headline</title></item>
+                  </channel>
+                </rss>
+                """,
+                {},
+            )
+
+        payload = verify_provider_connectivity(
+            settings=Settings(
+                provider_mode="real",
+                github_token="token",
+                github_api_base_url="https://api.github.com",
+                newsnow_base_url="https://newsnow.example.com",
+                newsnow_source_ids="weibo",
+                request_timeout_seconds=8.0,
+            ),
+            probe_mode="real",
+            request_json=fake_request_json,
+            request_text=fake_request_text,
+        )
+
+        self.assertEqual(payload.github.status, "success")
+        self.assertEqual(payload.newsnow.status, "success")
+        self.assertEqual(payload.google_news.status, "failed")
+        self.assertIn("GitHub 和 NewsNow 已就绪", payload.summary)
+        self.assertIn("不会阻塞默认搜索", payload.summary)
+
+    def test_provider_verify_flags_core_probe_failures_as_blocking(self) -> None:
+        def fake_request_json(url: str, headers: dict[str, str]) -> tuple[object, dict[str, str]]:
+            del headers
+            if url.endswith("/rate_limit"):
+                raise RuntimeError("HTTP 403")
+            return ({"items": [{"title": "demo"}]}, {})
+
+        def fake_request_text(url: str, headers: dict[str, str]) -> tuple[str, dict[str, str]]:
+            del headers
+            if "api.gdeltproject.org" in url:
+                return (json.dumps({"articles": [{"title": "OpenClaw headline"}]}), {})
+            return (
+                """
+                <rss version="2.0">
+                  <channel>
+                    <item><title>OpenClaw headline</title></item>
+                  </channel>
+                </rss>
+                """,
+                {},
+            )
+
+        payload = verify_provider_connectivity(
+            settings=Settings(
+                provider_mode="real",
+                github_token="token",
+                github_api_base_url="https://api.github.com",
+                newsnow_base_url="https://newsnow.example.com",
+                newsnow_source_ids="weibo",
+                request_timeout_seconds=8.0,
+            ),
+            probe_mode="real",
+            request_json=fake_request_json,
+            request_text=fake_request_text,
+        )
+
+        self.assertEqual(payload.github.status, "failed")
+        self.assertEqual(payload.newsnow.status, "success")
+        self.assertIn("核心实时源", payload.summary)
+        self.assertIn("默认真实搜索会继续按策略跳过", payload.summary)
 
     def test_real_provider_fetch_github_content_tolerates_missing_releases(self) -> None:
         provider = RealDataProvider(
@@ -1027,7 +1125,8 @@ class ServiceTestCase(unittest.TestCase):
         )
 
         self.assertEqual(smoke.search.status, "success")
-        self.assertTrue(any("Google News" in item for item in smoke.next_steps))
+        self.assertIn("补充历史源仍有失败或跳过", smoke.summary)
+        self.assertTrue(any("Google News" in item and "不会阻塞默认搜索" in item for item in smoke.next_steps))
 
     def test_parse_search_query_normalizes_github_url(self) -> None:
         target = parse_search_query("https://github.com/Anthropic/Claude-Code/")

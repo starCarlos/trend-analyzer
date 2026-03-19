@@ -25,6 +25,8 @@ ENV_PATH = BACKEND_DIR / ".env"
 DEFAULT_RECORD_DIR = ROOT_DIR / "docs" / "acceptance-records"
 UI_SMOKE_SCRIPT = ROOT_DIR / "scripts" / "ui_smoke_test.py"
 DEFAULT_BASE_URL = build_local_acceptance_parser().get_default("base_url")
+CORE_PROVIDER_SOURCES = ("github", "newsnow")
+RAW_PROVIDER_SOURCES = CORE_PROVIDER_SOURCES + ("google_news", "direct_rss", "gdelt")
 
 
 def default_backend_python() -> str:
@@ -202,6 +204,44 @@ def yes_no(value: bool) -> str:
     return "是" if value else "否"
 
 
+def iter_raw_provider_entries(payload: dict[str, object]) -> list[dict[str, object]]:
+    providers = payload.get("providers")
+    if isinstance(providers, list):
+        return [item for item in providers if isinstance(item, dict)]
+
+    entries: list[dict[str, object]] = []
+    for source in RAW_PROVIDER_SOURCES:
+        item = payload.get(source)
+        if not isinstance(item, dict):
+            continue
+        entry = dict(item)
+        entry.setdefault("source", source)
+        entries.append(entry)
+    return entries
+
+
+def get_raw_provider_entry(payload: dict[str, object], source: str) -> dict[str, object]:
+    for entry in iter_raw_provider_entries(payload):
+        if str(entry.get("source") or "") == source:
+            return entry
+    return {}
+
+
+def get_raw_provider_status(payload: dict[str, object], source: str) -> str:
+    return str(get_raw_provider_entry(payload, source).get("status") or "")
+
+
+def raw_verify_payload_core_success(payload: dict[str, object]) -> bool:
+    return all(get_raw_provider_status(payload, source) == "success" for source in CORE_PROVIDER_SOURCES)
+
+
+def raw_status_payload_core_ready(payload: dict[str, object], *, expected_mode: str | None) -> bool:
+    mode_matches = expected_mode in {None, "", str(payload.get("requested_mode") or "")}
+    return mode_matches and all(
+        get_raw_provider_status(payload, source) != "misconfigured" for source in CORE_PROVIDER_SOURCES
+    )
+
+
 def render_path(path: str) -> str:
     try:
         candidate = Path(path).expanduser()
@@ -308,21 +348,18 @@ def validate_error_readability(backend_python: str) -> tuple[str, str]:
     except Exception as exc:
         return "失败", f"可读性验证执行失败：{summarize_exception(exc)}"
 
-    github_status_ok = (
-        status_payload["github"]["status"] == "misconfigured"
-        and bool(status_payload["github"].get("issues"))
+    github_status = get_raw_provider_entry(status_payload, "github")
+    newsnow_status = get_raw_provider_entry(status_payload, "newsnow")
+    github_verify = get_raw_provider_entry(verify_payload, "github")
+    newsnow_verify = get_raw_provider_entry(verify_payload, "newsnow")
+
+    github_status_ok = github_status.get("status") == "misconfigured" and bool(github_status.get("issues"))
+    newsnow_status_ok = newsnow_status.get("status") == "misconfigured" and bool(newsnow_status.get("issues"))
+    github_verify_ok = github_verify.get("status") == "skipped" and "本地配置不完整" in str(
+        github_verify.get("message") or ""
     )
-    newsnow_status_ok = (
-        status_payload["newsnow"]["status"] == "misconfigured"
-        and bool(status_payload["newsnow"].get("issues"))
-    )
-    github_verify_ok = (
-        verify_payload["github"]["status"] == "skipped"
-        and "本地配置不完整" in str(verify_payload["github"]["message"])
-    )
-    newsnow_verify_ok = (
-        verify_payload["newsnow"]["status"] == "skipped"
-        and "本地配置不完整" in str(verify_payload["newsnow"]["message"])
+    newsnow_verify_ok = newsnow_verify.get("status") == "skipped" and "本地配置不完整" in str(
+        newsnow_verify.get("message") or ""
     )
 
     if github_status_ok and newsnow_status_ok and github_verify_ok and newsnow_verify_ok:
@@ -573,15 +610,14 @@ def update_status_section(
     expected_mode: str | None,
 ) -> str:
     heading = "## 4. Provider 预检结果"
-    github = payload["github"]
-    newsnow = payload["newsnow"]
-    mode_matches = expected_mode in {None, "", str(payload["requested_mode"])}
-    is_ok = mode_matches and github["status"] != "misconfigured" and newsnow["status"] != "misconfigured"
+    github = get_raw_provider_entry(payload, "github")
+    newsnow = get_raw_provider_entry(payload, "newsnow")
+    is_ok = raw_status_payload_core_ready(payload, expected_mode=expected_mode)
     content = replace_nth_fenced_block_in_section(content, heading, "bash", command_markdown(command))
     content = update_line_in_section(content, heading, "`requested_mode`", str(payload["requested_mode"]))
     content = update_line_in_section(content, heading, "`resolved_provider`", str(payload["resolved_provider"]))
-    content = update_line_in_section(content, heading, "GitHub 状态", str(github["status"]))
-    content = update_line_in_section(content, heading, "NewsNow 状态", str(newsnow["status"]))
+    content = update_line_in_section(content, heading, "GitHub 状态", str(github.get("status") or "missing"))
+    content = update_line_in_section(content, heading, "NewsNow 状态", str(newsnow.get("status") or "missing"))
     content = update_line_in_section(content, heading, "是否通过", f"`{pass_fail(is_ok)}`")
     content = update_line_in_section(content, "## 2. 配置摘要", "`PROVIDER_MODE`", str(payload["requested_mode"]))
     return replace_nth_fenced_block_in_section(content, heading, "text", stdout)
@@ -589,12 +625,12 @@ def update_status_section(
 
 def update_verify_section(content: str, stdout: str, payload: dict[str, object], command: list[str]) -> str:
     heading = "## 5. 在线探测结果"
-    github = payload["github"]
-    newsnow = payload["newsnow"]
-    is_ok = github["status"] == "success" and newsnow["status"] == "success"
+    github = get_raw_provider_entry(payload, "github")
+    newsnow = get_raw_provider_entry(payload, "newsnow")
+    is_ok = raw_verify_payload_core_success(payload)
     content = replace_nth_fenced_block_in_section(content, heading, "bash", command_markdown(command))
-    content = update_line_in_section(content, heading, "GitHub 状态", str(github["status"]))
-    content = update_line_in_section(content, heading, "NewsNow 状态", str(newsnow["status"]))
+    content = update_line_in_section(content, heading, "GitHub 状态", str(github.get("status") or "missing"))
+    content = update_line_in_section(content, heading, "NewsNow 状态", str(newsnow.get("status") or "missing"))
     content = update_line_in_section(content, heading, "是否通过", f"`{pass_fail(is_ok)}`")
     return replace_nth_fenced_block_in_section(content, heading, "text", stdout)
 
@@ -604,11 +640,7 @@ def update_smoke_section(content: str, stdout: str, payload: dict[str, object], 
     verify = payload["provider_verify"]
     search = payload["search"]
     next_steps = payload.get("next_steps") or []
-    is_ok = (
-        verify["github"]["status"] == "success"
-        and verify["newsnow"]["status"] == "success"
-        and search["status"] == "success"
-    )
+    is_ok = raw_verify_payload_core_success(verify) and str(search.get("status") or "") == "success"
     content = replace_nth_fenced_block_in_section(content, heading, "bash", command_markdown(command))
     content = update_line_in_section(content, heading, "summary", str(payload["summary"]))
     content = update_line_in_section(content, heading, "`search.status`", str(search["status"]))
@@ -1015,11 +1047,7 @@ def main() -> int:
     if not args.skip_status:
         status_command = [backend_python, "-m", "app.cli", "provider-status"]
         status_stdout, status_payload = run_json_command(status_command)
-        status_ok = (
-            expected_mode in {None, "", str(status_payload["requested_mode"])}
-            and status_payload["github"]["status"] != "misconfigured"
-            and status_payload["newsnow"]["status"] != "misconfigured"
-        )
+        status_ok = raw_status_payload_core_ready(status_payload, expected_mode=expected_mode)
         content = update_status_section(
             content,
             status_stdout,
@@ -1031,10 +1059,7 @@ def main() -> int:
     if not args.skip_verify:
         verify_command = [backend_python, "-m", "app.cli", "provider-verify", "--probe-mode", args.probe_mode]
         verify_stdout, verify_payload = run_json_command(verify_command)
-        verify_ok = (
-            verify_payload["github"]["status"] == "success"
-            and verify_payload["newsnow"]["status"] == "success"
-        )
+        verify_ok = raw_verify_payload_core_success(verify_payload)
         content = update_verify_section(content, verify_stdout, verify_payload, verify_command)
 
     if not args.skip_smoke:
@@ -1052,11 +1077,9 @@ def main() -> int:
         if args.force_search:
             smoke_command.append("--force-search")
         smoke_stdout, smoke_payload = run_json_command(smoke_command)
-        smoke_ok = (
-            smoke_payload["provider_verify"]["github"]["status"] == "success"
-            and smoke_payload["provider_verify"]["newsnow"]["status"] == "success"
-            and smoke_payload["search"]["status"] == "success"
-        )
+        smoke_ok = raw_verify_payload_core_success(smoke_payload["provider_verify"]) and str(
+            smoke_payload["search"].get("status") or ""
+        ) == "success"
         content = update_smoke_section(content, smoke_stdout, smoke_payload, smoke_command)
 
     if args.run_ui:

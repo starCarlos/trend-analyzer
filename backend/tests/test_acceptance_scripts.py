@@ -31,6 +31,8 @@ from ui_smoke_test import (  # noqa: E402
     build_inprocess_database_url,
     build_inprocess_remark,
     configure_inprocess_database,
+    has_provider_probe_results,
+    has_smoke_run_results,
     load_inprocess_search_payload,
     summarize_backfill_failures,
 )
@@ -41,8 +43,10 @@ from update_real_provider_acceptance_record import (  # noqa: E402
     update_final_conclusion_section,
     update_prd_mapping_section,
     update_smoke_section,
+    update_status_section,
     update_ui_sections,
     update_ui_failure_sections,
+    update_verify_section,
 )
 
 
@@ -477,6 +481,108 @@ class AcceptanceScriptTestCase(unittest.TestCase):
 
         self.assertIn("provider-smoke openai/openai-python --period 30d --probe-mode real", updated)
         self.assertIn("provider-smoke openai/openai-python --period 30d --probe-mode real --force-search", updated)
+
+    def test_update_status_section_accepts_providers_array_shape(self) -> None:
+        updated = update_status_section(
+            self.read_template(),
+            '{"summary":"ok"}',
+            {
+                "requested_mode": "real",
+                "resolved_provider": "real",
+                "providers": [
+                    {"source": "github", "status": "ready"},
+                    {"source": "newsnow", "status": "ready"},
+                ],
+            },
+            ["backend/.venv/bin/python", "-m", "app.cli", "provider-status"],
+            expected_mode="real",
+        )
+
+        self.assertIn("- GitHub 状态：ready", updated)
+        self.assertIn("- NewsNow 状态：ready", updated)
+        self.assertIn("- 是否通过：`通过`", updated)
+
+    def test_update_verify_section_accepts_providers_array_shape(self) -> None:
+        updated = update_verify_section(
+            self.read_template(),
+            '{"summary":"ok"}',
+            {
+                "summary": "verify summary",
+                "providers": [
+                    {"source": "github", "status": "success"},
+                    {"source": "newsnow", "status": "success"},
+                    {"source": "google_news", "status": "failed"},
+                ],
+            },
+            ["backend/.venv/bin/python", "-m", "app.cli", "provider-verify", "--probe-mode", "real"],
+        )
+
+        self.assertIn("- GitHub 状态：success", updated)
+        self.assertIn("- NewsNow 状态：success", updated)
+        self.assertIn("- 是否通过：`通过`", updated)
+
+    def test_update_smoke_section_accepts_nested_providers_array_shape(self) -> None:
+        updated = update_smoke_section(
+            self.read_template(),
+            '{"summary":"ok"}',
+            {
+                "summary": "smoke summary",
+                "provider_verify": {
+                    "providers": [
+                        {"source": "github", "status": "success"},
+                        {"source": "newsnow", "status": "success"},
+                        {"source": "google_news", "status": "failed"},
+                    ]
+                },
+                "search": {
+                    "status": "success",
+                    "message": "端到端搜索执行成功。",
+                },
+                "next_steps": ["Google News 在线探测失败或跳过；这不会阻塞默认搜索。"],
+            },
+            [
+                "backend/.venv/bin/python",
+                "-m",
+                "app.cli",
+                "provider-smoke",
+                "openai/openai-python",
+                "--period",
+                "30d",
+                "--probe-mode",
+                "real",
+            ],
+        )
+
+        self.assertIn("- 是否通过：`通过`", updated)
+        self.assertIn("Google News 在线探测失败或跳过", updated)
+
+    def test_inprocess_completion_helpers_accept_providers_array_shape(self) -> None:
+        self.assertTrue(
+            has_provider_probe_results(
+                {
+                    "summary": "verify summary",
+                    "providers": [
+                        {"source": "github", "status": "success"},
+                        {"source": "newsnow", "status": "success"},
+                    ],
+                }
+            )
+        )
+        self.assertTrue(
+            has_smoke_run_results(
+                {
+                    "summary": "smoke summary",
+                    "provider_verify": {
+                        "providers": [
+                            {"source": "github", "status": "success"},
+                        ]
+                    },
+                    "search": {
+                        "status": "success",
+                    },
+                }
+            )
+        )
 
     def test_load_inprocess_search_payload_runs_backfill_now(self) -> None:
         class FakePayload:

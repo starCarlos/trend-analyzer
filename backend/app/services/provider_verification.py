@@ -9,7 +9,11 @@ from app.config import Settings, get_settings
 from app.schemas import ProviderProbePayload, ProviderVerifyPayload
 from app.services.direct_rss_catalog import iter_direct_rss_feeds
 from app.services.provider_diagnostics import get_provider_status
-from app.services.provider_registry import iter_online_provider_specs
+from app.services.provider_registry import (
+    SMOKE_BLOCKING_PROVIDER_SOURCES,
+    get_online_provider_spec,
+    iter_online_provider_specs,
+)
 from app.services.providers import ATOM_NAMESPACE, GDELT_DOC_API_URL
 from app.services.provider_urls import build_newsnow_source_endpoint, iter_newsnow_source_endpoints, newsnow_request_headers
 
@@ -468,10 +472,29 @@ def _build_summary(
 ) -> str:
     statuses = {probe.status for probe in probes}
     succeeded_sources = [probe.source for probe in probes if probe.status == "success"]
+    blocking_issues = [probe for probe in probes if probe.source in SMOKE_BLOCKING_PROVIDER_SOURCES and probe.status != "success"]
+    archive_issues = [probe for probe in probes if probe.source not in SMOKE_BLOCKING_PROVIDER_SOURCES and probe.status != "success"]
     if statuses == {"success"}:
         return f"{probe_mode} 模式在线探测成功，{len(succeeded_sources)} 个数据源都已返回响应。"
-    if "failed" in statuses:
-        return f"{probe_mode} 模式在线探测已执行，但至少有一个数据源失败。"
     if statuses == {"skipped"}:
         return f"{probe_mode} 模式在线探测被跳过，本地配置尚未满足真实请求条件。"
+    if blocking_issues:
+        labels = _format_probe_labels(blocking_issues)
+        return f"{probe_mode} 模式在线探测已完成，但 {labels} 等核心实时源仍有失败或跳过；默认真实搜索会继续按策略跳过。"
+    if archive_issues:
+        labels = _format_probe_labels(archive_issues)
+        return (
+            f"{probe_mode} 模式在线探测已完成，GitHub 和 NewsNow 已就绪；"
+            f"{labels} 等补充历史源仍有失败或跳过，这不会阻塞默认搜索，但会影响历史新闻补充完整性。"
+        )
     return f"{probe_mode} 模式在线探测已完成，结果包含 success / skipped 混合状态。"
+
+
+def _format_probe_labels(probes: list[ProviderProbePayload]) -> str:
+    labels: list[str] = []
+    for probe in probes:
+        spec = get_online_provider_spec(probe.source)
+        label = spec.label if spec else probe.source
+        if label not in labels:
+            labels.append(label)
+    return "、".join(labels)

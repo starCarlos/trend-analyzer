@@ -79,25 +79,36 @@ def run_provider_smoke(
 
 
 def _build_summary(provider_verify, search: ProviderSmokeSearchPayload) -> str:
+    blocking_issues = _iter_provider_issues(provider_verify, SMOKE_BLOCKING_PROVIDER_SOURCES)
+    archive_issues = _iter_provider_issues(provider_verify)
+
     if search.status == "success":
+        if blocking_issues:
+            return "核心实时源探测仍有失败或跳过，但本轮已强制执行端到端搜索。"
+        if archive_issues:
+            return "核心实时源探测和端到端搜索已执行；补充历史源仍有失败或跳过，但默认搜索链路可用。"
         return "预检、在线探测和端到端搜索都已执行，当前 provider 冒烟通过。"
     if search.status == "failed":
         return "预检和在线探测已执行，但端到端搜索失败。"
     probes = _iter_provider_probes(provider_verify)
     if probes and all(probe.status == "success" for probe in probes):
         return "在线探测成功，但本轮按默认策略没有执行真实搜索。"
-    return "在线探测未全部成功，端到端搜索已按默认策略跳过。"
+    if blocking_issues:
+        return "核心实时源在线探测未全部成功，端到端搜索已按默认策略跳过。"
+    return "补充历史源在线探测仍有失败或跳过，但这不会阻塞默认搜索。"
 
 
 def _build_next_steps(provider_verify, search: ProviderSmokeSearchPayload, force_search: bool) -> list[str]:
     steps: list[str] = []
+    blocking_issues = _iter_provider_issues(provider_verify, SMOKE_BLOCKING_PROVIDER_SOURCES)
+    archive_issues = _iter_provider_issues(provider_verify)
 
-    for probe in _iter_provider_probes(provider_verify):
-        if probe.status == "success":
-            continue
-        spec = get_online_provider_spec(probe.source)
-        label = spec.label if spec else probe.source
-        steps.append(f"先处理 {label} 在线探测失败或跳过，再做真实联调。")
+    if blocking_issues:
+        steps.append(f"先处理 {_format_probe_labels(blocking_issues)} 在线探测失败或跳过，再做真实联调。")
+    if archive_issues:
+        steps.append(
+            f"{_format_probe_labels(archive_issues)} 在线探测失败或跳过；这不会阻塞默认搜索，但会影响补充历史源完整性。"
+        )
     if search.status == "skipped" and not force_search:
         steps.append("如果你仍想强制验证真实搜索，重新运行 provider-smoke 并开启 force_search。")
     if search.status == "failed":
@@ -117,3 +128,20 @@ def _iter_provider_probes(provider_verify, sources: tuple[str, ...] | None = Non
         return list(providers)
     source_set = set(sources)
     return [probe for probe in providers if probe.source in source_set]
+
+
+def _iter_provider_issues(provider_verify, sources: tuple[str, ...] | None = None) -> list[object]:
+    if sources is None:
+        source_set = set(SMOKE_BLOCKING_PROVIDER_SOURCES)
+        return [probe for probe in _iter_provider_probes(provider_verify) if probe.status != "success" and probe.source not in source_set]
+    return [probe for probe in _iter_provider_probes(provider_verify, sources) if probe.status != "success"]
+
+
+def _format_probe_labels(probes: list[object]) -> str:
+    labels: list[str] = []
+    for probe in probes:
+        spec = get_online_provider_spec(probe.source)
+        label = spec.label if spec else probe.source
+        if label not in labels:
+            labels.append(label)
+    return "、".join(labels)

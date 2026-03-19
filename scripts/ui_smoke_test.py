@@ -19,6 +19,7 @@ DEFAULT_KEYWORD_QUERY = "mcp"
 DEFAULT_PERIOD = "30d"
 DEFAULT_DRIVER = os.environ.get("TRENDSCOPE_UI_DRIVER", "auto")
 DEFAULT_INPROCESS_DATABASE_URL = os.environ.get("TRENDSCOPE_INPROCESS_DATABASE_URL", "").strip()
+RAW_PROVIDER_SOURCES = ("github", "newsnow", "google_news", "direct_rss", "gdelt")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -85,6 +86,34 @@ def write_evidence(output_dir: Path, filename: str, payload: object) -> str:
 
 def join_notes(parts: list[str]) -> str:
     return "；".join(part for part in parts if part)
+
+
+def iter_raw_provider_entries(payload: dict[str, object]) -> list[dict[str, object]]:
+    providers = payload.get("providers")
+    if isinstance(providers, list):
+        return [item for item in providers if isinstance(item, dict)]
+
+    entries: list[dict[str, object]] = []
+    for source in RAW_PROVIDER_SOURCES:
+        item = payload.get(source)
+        if not isinstance(item, dict):
+            continue
+        entry = dict(item)
+        entry.setdefault("source", source)
+        entries.append(entry)
+    return entries
+
+
+def has_provider_probe_results(payload: dict[str, object]) -> bool:
+    return bool(iter_raw_provider_entries(payload)) or bool(str(payload.get("summary") or "").strip())
+
+
+def has_smoke_run_results(payload: dict[str, object]) -> bool:
+    return (
+        bool(str(payload.get("summary") or "").strip())
+        and isinstance(payload.get("provider_verify"), dict)
+        and isinstance(payload.get("search"), dict)
+    )
 
 
 def summarize_backfill_failures(search_payload: dict[str, object]) -> str:
@@ -460,8 +489,8 @@ def run_inprocess_flows(
             "tracked_page": {
                 "url": f"{base_url}/tracked",
                 "page_opened": 'id="tracked-panel"' in page_html,
-                "verify_real_completed": bool(verify_payload.get("github")) and bool(verify_payload.get("newsnow")),
-                "run_smoke_completed": bool(smoke_payload.get("provider_verify")) and bool(smoke_payload.get("search")),
+                "verify_real_completed": has_provider_probe_results(verify_payload),
+                "run_smoke_completed": has_smoke_run_results(smoke_payload),
                 "collect_tracked_executed": collect_tracked_executed,
                 "collect_runs_visible": False,
                 "collect_runs_added": bool(runs_after_ids - runs_before_ids),
