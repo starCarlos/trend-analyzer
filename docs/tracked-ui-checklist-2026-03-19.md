@@ -16,7 +16,7 @@ Reduce clutter on `/tracked` and make the page read as:
 - [x] Lower the visual weight of scheduler / provider / collect panels
 - [x] Clarify copy for provider preflight and manual collect
 - [x] Run focused frontend verification on `/tracked`
-- [ ] Commit this batch
+- [x] Commit this batch
 
 ## Notes
 
