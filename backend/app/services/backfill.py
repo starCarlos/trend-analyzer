@@ -8,6 +8,11 @@ from app.models import BackfillJob, BackfillJobTask, CollectRun, ContentItem, Ke
 from app.services.provider_registry import ARCHIVE_PROVIDER_FETCHERS
 from app.services.providers import get_data_provider
 from app.services.provider_types import ContentItemInput, TrendPointInput
+from app.services.query_variants import (
+    fetch_variant_content_items,
+    fetch_variant_newsnow_snapshot,
+    keyword_query_variants,
+)
 
 
 def _upsert_trend_point(session, keyword_id: int, point) -> None:
@@ -200,7 +205,18 @@ def run_backfill_job(job_id: int) -> None:
                         )
 
                 elif task.source == "newsnow" and task.task_type == "snapshot":
-                    trend_points, content_items = provider.fetch_newsnow_snapshot(keyword.normalized_query)
+                    query_variants = (
+                        keyword_query_variants(keyword.raw_query)
+                        if keyword.kind == "keyword"
+                        else [keyword.normalized_query]
+                    )
+                    trend_points, content_items, snapshot_errors = fetch_variant_newsnow_snapshot(
+                        provider.fetch_newsnow_snapshot,
+                        query_variants,
+                        provider_name=provider.name,
+                    )
+                    if snapshot_errors and not trend_points and not content_items:
+                        raise RuntimeError("；".join(snapshot_errors))
                     archive_items: list[ContentItemInput] = []
                     archive_errors: list[str] = []
                     archive_counts: dict[str, int] = {}
@@ -209,11 +225,9 @@ def run_backfill_job(job_id: int) -> None:
                             archive_fetcher = getattr(provider, fetcher_name, None)
                             if not callable(archive_fetcher):
                                 continue
-                            try:
-                                fetched = archive_fetcher(keyword.normalized_query)
-                            except Exception as exc:
-                                archive_errors.append(f"{source}: {exc}")
-                                continue
+                            fetched, fetch_errors = fetch_variant_content_items(archive_fetcher, query_variants)
+                            if fetch_errors:
+                                archive_errors.append(f"{source}: {'；'.join(fetch_errors)}")
                             archive_counts[source] = len(fetched)
                             archive_items.extend(fetched)
                     for point in trend_points:

@@ -1159,6 +1159,10 @@ class ServiceTestCase(unittest.TestCase):
     def test_keyword_query_variants_adds_english_variant_for_cjk_query(self, _translate) -> None:
         self.assertEqual(keyword_query_variants("石油"), ["石油", "oil"])
 
+    @patch("app.services.query_variants.translate_keyword_variant", return_value="石油")
+    def test_keyword_query_variants_adds_chinese_variant_for_english_query(self, _translate) -> None:
+        self.assertEqual(keyword_query_variants("oil"), ["oil", "石油"])
+
     @patch("app.services.query_variants.translate_keyword_variant", return_value="")
     def test_keyword_query_variants_falls_back_to_original_query(self, _translate) -> None:
         self.assertEqual(keyword_query_variants("石油"), ["石油"])
@@ -1606,6 +1610,86 @@ class ServiceTestCase(unittest.TestCase):
         self.assertTrue(any(item.source == "direct_rss" for item in payload.content_items))
         self.assertTrue(any(item.title == "Oil market update" for item in payload.content_items))
         self.assertEqual(payload.availability["direct_rss_archive"], "ready")
+        self.assertIsNone(payload.backfill_job)
+
+    def test_keyword_search_merges_history_from_english_and_chinese_variants(self) -> None:
+        query = f"oil-bilingual-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        seen_queries: list[str] = []
+
+        class BilingualGoogleNewsProvider:
+            name = "bilingual-google"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                return ([], [])
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                seen_queries.append(keyword_query)
+                if keyword_query == "oil":
+                    return [
+                        ContentItemInput(
+                            source="google_news",
+                            source_type="archive",
+                            external_key="oil:archive:1",
+                            title="Oil market update",
+                            url="https://example.com/oil/1",
+                            summary="Oil prices moved higher.",
+                            author="provider",
+                            published_at=today - timedelta(days=2),
+                            meta_json='{"query":"oil"}',
+                        )
+                    ]
+                if keyword_query == "石油":
+                    return [
+                        ContentItemInput(
+                            source="google_news",
+                            source_type="archive",
+                            external_key="oil:archive:2",
+                            title="石油市场快讯",
+                            url="https://example.com/oil/2",
+                            summary="石油供应出现变化。",
+                            author="provider",
+                            published_at=today - timedelta(days=1),
+                            meta_json='{"query":"石油"}',
+                        )
+                    ]
+                return []
+
+            def fetch_direct_rss_archive(self, keyword_query: str):
+                return []
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                return []
+
+        with (
+            patch("app.services.search.get_data_provider", return_value=BilingualGoogleNewsProvider()),
+            patch("app.services.search.keyword_query_variants", return_value=["oil", "石油"]),
+        ):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        history_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual(seen_queries, ["oil", "石油"])
+        self.assertEqual([point.value for point in history_series.points], [1.0, 1.0])
+        self.assertTrue(any(item.title == "Oil market update" for item in payload.content_items))
+        self.assertTrue(any(item.title == "石油市场快讯" for item in payload.content_items))
+        self.assertEqual(payload.availability["google_news_archive"], "ready")
         self.assertIsNone(payload.backfill_job)
 
     def test_keyword_search_keeps_inline_history_when_later_archive_source_fails(self) -> None:
@@ -2732,12 +2816,13 @@ class ServiceTestCase(unittest.TestCase):
         self.db.close()
         self.db = SessionLocal()
 
-        refreshed = search_keyword(
-            db=self.db,
-            background_tasks=BackgroundTasks(),
-            query=query,
-            period="all",
-        )
+        with patch("app.services.search.get_data_provider", return_value=EmptyInlineProvider()):
+            refreshed = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
 
         history_series = next(
             series
@@ -2748,6 +2833,159 @@ class ServiceTestCase(unittest.TestCase):
         )
         self.assertEqual([point.value for point in history_series.points], [1.0, 1.0, 2.0, 1.0])
         self.assertFalse(any(series.source == "newsnow" and series.metric == "hot_hit_count" for series in refreshed.trend.series))
+
+    def test_keyword_backfill_merges_bilingual_variants_for_snapshot_and_archives(self) -> None:
+        query = f"oil-backfill-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        class EmptyInlineProvider:
+            name = "empty-inline"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                return ([], [])
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                return []
+
+            def fetch_direct_rss_archive(self, keyword_query: str):
+                return []
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                return []
+
+        with patch("app.services.search.get_data_provider", return_value=EmptyInlineProvider()):
+            initial = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        job = BackfillJob(keyword_id=initial.keyword.id, status="pending")
+        self.db.add(job)
+        self.db.flush()
+        self.db.add(
+            BackfillJobTask(
+                job_id=job.id,
+                source="newsnow",
+                task_type="snapshot",
+                status="pending",
+            )
+        )
+        self.db.commit()
+
+        seen_snapshot_queries: list[str] = []
+        seen_google_queries: list[str] = []
+
+        class BilingualBackfillProvider:
+            name = "bilingual-backfill"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                seen_snapshot_queries.append(keyword_query)
+                if keyword_query != "石油":
+                    return ([], [])
+                return (
+                    [
+                        TrendPointInput(
+                            source="newsnow",
+                            metric="hot_hit_count",
+                            source_type="snapshot",
+                            bucket_granularity="day",
+                            bucket_start=today,
+                            value=1.0,
+                            raw_json='{"query":"石油"}',
+                        ),
+                        TrendPointInput(
+                            source="newsnow",
+                            metric="platform_count",
+                            source_type="snapshot",
+                            bucket_granularity="day",
+                            bucket_start=today,
+                            value=1.0,
+                            raw_json='{"query":"石油"}',
+                        ),
+                    ],
+                    [
+                        ContentItemInput(
+                            source="newsnow",
+                            source_type="snapshot",
+                            external_key="newsnow:oil:zh",
+                            title="石油快讯",
+                            url="https://example.com/newsnow/zh",
+                            summary="石油需求上升。",
+                            author="weibo",
+                            published_at=today,
+                            meta_json='{"platform":"weibo","query":"石油"}',
+                        )
+                    ],
+                )
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                seen_google_queries.append(keyword_query)
+                if keyword_query != "oil":
+                    return []
+                return [
+                    ContentItemInput(
+                        source="google_news",
+                        source_type="archive",
+                        external_key="google:oil:en",
+                        title="Oil market update",
+                        url="https://example.com/archive/oil",
+                        summary="Oil prices moved higher.",
+                        author="provider",
+                        published_at=today - timedelta(days=1),
+                        meta_json='{"query":"oil"}',
+                    )
+                ]
+
+            def fetch_direct_rss_archive(self, keyword_query: str):
+                return []
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                return []
+
+        with (
+            patch("app.services.backfill.get_data_provider", return_value=BilingualBackfillProvider()),
+            patch("app.services.backfill.keyword_query_variants", return_value=["oil", "石油"]),
+        ):
+            run_backfill_job(job.id)
+
+        self.db.close()
+        self.db = SessionLocal()
+
+        with patch("app.services.search.get_data_provider", return_value=EmptyInlineProvider()):
+            refreshed = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        history_series = next(
+            series
+            for series in refreshed.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual(seen_snapshot_queries, ["oil", "石油"])
+        self.assertEqual(seen_google_queries, ["oil", "石油"])
+        self.assertEqual([point.value for point in history_series.points], [1.0, 1.0])
+        self.assertEqual(refreshed.backfill_job.status, "success")
+        self.assertTrue(any(item.title == "石油快讯" for item in refreshed.content_items))
+        self.assertTrue(any(item.title == "Oil market update" for item in refreshed.content_items))
 
     def test_track_toggle_round_trip(self) -> None:
         query = f"keyword-{uuid4().hex[:8]}"

@@ -43,7 +43,11 @@ from app.services.providers import get_data_provider
 from app.services.provider_registry import ARCHIVE_PROVIDER_FETCHERS
 from app.services.provider_types import TrendPointInput
 from app.services.query_parser import SearchTarget, resolve_search_query
-from app.services.query_variants import keyword_query_variants
+from app.services.query_variants import (
+    fetch_variant_content_items,
+    fetch_variant_newsnow_snapshot,
+    keyword_query_variants,
+)
 
 
 ALLOWED_PERIODS = {"7d": 7, "30d": 30, "90d": 90, "all": None}
@@ -279,6 +283,7 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
         return True
 
     provider = get_data_provider()
+    query_variants = _archive_queries(keyword)
     for source, fetcher_name in ARCHIVE_PROVIDER_FETCHERS:
         if _has_fresh_content_items(db, keyword.id, source):
             continue
@@ -286,15 +291,7 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
         if not callable(archive_fetcher):
             continue
 
-        archive_items = []
-        for archive_query in _archive_queries(keyword):
-            try:
-                archive_items = archive_fetcher(archive_query)
-            except Exception:
-                archive_items = []
-                continue
-            if archive_items:
-                break
+        archive_items, _ = fetch_variant_content_items(archive_fetcher, query_variants)
 
         if archive_items:
             for item in archive_items:
@@ -309,15 +306,16 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
         changed = True
 
     if keyword.kind == "keyword" and not has_history_content and not _has_fresh_newsnow_snapshot(db, keyword.id):
-        try:
-            snapshot_points, snapshot_items = provider.fetch_newsnow_snapshot(keyword.normalized_query)
-        except Exception:
-            snapshot_points, snapshot_items = [], []
-        else:
-            for point in snapshot_points:
-                _upsert_trend_point(db, keyword.id, point)
-            for item in snapshot_items:
-                _upsert_content_item(db, keyword.id, item)
+        snapshot_points, snapshot_items, _ = fetch_variant_newsnow_snapshot(
+            provider.fetch_newsnow_snapshot,
+            query_variants,
+            provider_name=provider.name,
+        )
+        for point in snapshot_points:
+            _upsert_trend_point(db, keyword.id, point)
+        for item in snapshot_items:
+            _upsert_content_item(db, keyword.id, item)
+        if snapshot_points or snapshot_items:
             db.flush()
             changed = True
             has_history_content = any(item.published_at for item in snapshot_items)
