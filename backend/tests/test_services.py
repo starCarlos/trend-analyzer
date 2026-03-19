@@ -1502,6 +1502,7 @@ class ServiceTestCase(unittest.TestCase):
         self.db.commit()
 
         with (
+            patch("app.services.search.get_settings", return_value=Settings(provider_mode="real")),
             patch("app.services.search._prefetch_content_history_inline", return_value=False),
             patch("app.services.search._maybe_schedule_backfill", return_value=None),
         ):
@@ -1523,6 +1524,100 @@ class ServiceTestCase(unittest.TestCase):
             and series.source_type == "timeline"
         )
         self.assertEqual([point.value for point in gdelt_series.points], [1.0])
+
+    def test_keyword_search_dedupes_archive_duplicates_with_direct_rss_priority(self) -> None:
+        first_day = datetime(2026, 3, 17, 0, 0, 0)
+        second_day = datetime(2026, 3, 18, 0, 0, 0)
+        keyword = Keyword(
+            raw_query="openclaw",
+            normalized_query="openclaw",
+            kind="keyword",
+        )
+        self.db.add(keyword)
+        self.db.flush()
+
+        self.db.add_all(
+            [
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="direct_rss",
+                    source_type="archive",
+                    external_key="direct-rss-primary",
+                    title="OpenClaw releases desktop agent",
+                    url="https://example.com/rss/openclaw",
+                    summary="direct-rss",
+                    author="RSS Publisher",
+                    published_at=datetime(2026, 3, 17, 10, 0, 0),
+                    meta_json="{}",
+                ),
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="google_news",
+                    source_type="archive",
+                    external_key="google-news-duplicate",
+                    title="OpenClaw releases desktop agent!",
+                    url="https://news.google.com/rss/articles/1",
+                    summary="google-news",
+                    author="Google News",
+                    published_at=datetime(2026, 3, 17, 11, 0, 0),
+                    meta_json="{}",
+                ),
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="newsnow",
+                    source_type="snapshot",
+                    external_key="newsnow-follow-up",
+                    title="OpenClaw follow-up discussion",
+                    url="https://example.com/newsnow/openclaw",
+                    summary="newsnow",
+                    author="NewsNow",
+                    published_at=datetime(2026, 3, 18, 9, 0, 0),
+                    meta_json="{}",
+                ),
+            ]
+        )
+        self.db.add(
+            TrendPoint(
+                keyword_id=keyword.id,
+                source="keyword_history",
+                metric="matched_item_count",
+                source_type="timeline",
+                bucket_granularity="day",
+                bucket_start=first_day,
+                value=2.0,
+                raw_json="{}",
+            )
+        )
+        self.db.commit()
+
+        with (
+            patch("app.services.search.get_settings", return_value=Settings(provider_mode="real")),
+            patch("app.services.search._prefetch_content_history_inline", return_value=False),
+            patch("app.services.search._maybe_schedule_backfill", return_value=None),
+        ):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query="openclaw",
+                period="all",
+            )
+
+        archive_items = [item for item in payload.content_items if item.source in {"google_news", "direct_rss", "gdelt"}]
+        self.assertEqual(len(archive_items), 1)
+        self.assertEqual(archive_items[0].source, "direct_rss")
+        self.assertFalse(any(item.source == "google_news" for item in payload.content_items))
+
+        history_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual(
+            [(point.bucket_start, point.value) for point in history_series.points],
+            [(first_day, 1.0), (second_day, 1.0)],
+        )
 
     def test_repository_search_prefetches_google_news_inline_and_derives_timeline(self) -> None:
         repo_name = f"repo-{uuid4().hex[:8]}"

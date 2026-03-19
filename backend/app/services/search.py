@@ -1,5 +1,7 @@
 import json
-from datetime import date, timedelta
+import re
+import unicodedata
+from datetime import date, datetime, timedelta
 from itertools import groupby
 
 from fastapi import BackgroundTasks, HTTPException
@@ -39,6 +41,7 @@ ALLOWED_PERIODS = {"7d": 7, "30d": 30, "90d": 90, "all": None}
 ALLOWED_CONTENT_SOURCES = {"all", "github", "newsnow", "google_news", "direct_rss", "gdelt"}
 ARCHIVE_CONTENT_SOURCES = ("google_news", "direct_rss", "gdelt")
 CONTENT_REFRESH_WINDOW = timedelta(minutes=30)
+ARCHIVE_SOURCE_PRIORITY = {"direct_rss": 0, "google_news": 1, "gdelt": 2}
 
 
 def parse_period(period: str) -> int | None:
@@ -315,6 +318,74 @@ def _content_timestamp(item: ContentItem):
     return item.published_at or item.fetched_at
 
 
+def _normalize_archive_title(title: str | None) -> str:
+    if not title:
+        return ""
+    normalized = unicodedata.normalize("NFKC", title).casefold()
+    normalized = re.sub(r"[\W_]+", " ", normalized)
+    return " ".join(normalized.split())
+
+
+def _archive_dedupe_signature(item: ContentItem) -> tuple[str, str, str] | None:
+    if item.source not in ARCHIVE_CONTENT_SOURCES:
+        return None
+    if not item.published_at:
+        return None
+    normalized_title = _normalize_archive_title(item.title)
+    if not normalized_title:
+        return None
+    return ("day_title", item.published_at.date().isoformat(), normalized_title)
+
+
+def _archive_source_rank(source: str) -> int:
+    return ARCHIVE_SOURCE_PRIORITY.get(source, len(ARCHIVE_SOURCE_PRIORITY))
+
+
+def _prefer_archive_item(existing: ContentItem, candidate: ContentItem) -> ContentItem:
+    existing_rank = _archive_source_rank(existing.source)
+    candidate_rank = _archive_source_rank(candidate.source)
+    if existing_rank != candidate_rank:
+        return existing if existing_rank < candidate_rank else candidate
+
+    existing_timestamp = _content_timestamp(existing) or datetime.min
+    candidate_timestamp = _content_timestamp(candidate) or datetime.min
+    if existing_timestamp != candidate_timestamp:
+        return existing if existing_timestamp > candidate_timestamp else candidate
+
+    return existing if existing.id <= candidate.id else candidate
+
+
+def _dedupe_archive_contents(contents: list[ContentItem]) -> list[ContentItem]:
+    if get_settings().provider_mode == "mock":
+        return contents
+
+    chosen_by_signature: dict[tuple[str, str, str], ContentItem] = {}
+    for item in contents:
+        signature = _archive_dedupe_signature(item)
+        if signature is None:
+            continue
+        existing = chosen_by_signature.get(signature)
+        if existing is None:
+            chosen_by_signature[signature] = item
+            continue
+        chosen_by_signature[signature] = _prefer_archive_item(existing, item)
+
+    deduped: list[ContentItem] = []
+    emitted_signatures: set[tuple[str, str, str]] = set()
+    for item in contents:
+        signature = _archive_dedupe_signature(item)
+        if signature is None:
+            deduped.append(item)
+            continue
+        chosen = chosen_by_signature.get(signature)
+        if chosen is not item or signature in emitted_signatures:
+            continue
+        emitted_signatures.add(signature)
+        deduped.append(item)
+
+    return deduped
+
+
 def _is_synthetic_json(raw_json: str | None) -> bool:
     if not raw_json:
         return False
@@ -405,6 +476,30 @@ def _build_archive_series_from_contents(contents: list[ContentItem], source: str
     )
 
 
+def _build_keyword_history_series_from_contents(contents: list[ContentItem]) -> TrendSeriesPayload | None:
+    counts_by_day: dict = {}
+    deduped_contents = _dedupe_archive_contents(contents)
+
+    for item in deduped_contents:
+        if item.source not in KEYWORD_HISTORY_SOURCES or not item.published_at:
+            continue
+        bucket_start = item.published_at.replace(hour=0, minute=0, second=0, microsecond=0)
+        counts_by_day[bucket_start] = counts_by_day.get(bucket_start, 0) + 1
+
+    if not counts_by_day:
+        return None
+
+    return TrendSeriesPayload(
+        source="keyword_history",
+        metric="matched_item_count",
+        source_type="timeline",
+        points=[
+            TrendPointPayload(bucket_start=bucket_start, value=float(count))
+            for bucket_start, count in sorted(counts_by_day.items())
+        ],
+    )
+
+
 def _replace_archive_series(
     series_payloads: list[TrendSeriesPayload],
     *,
@@ -435,11 +530,13 @@ def _select_visible_content_items(
 ) -> list[ContentItem]:
     visible = _filter_content(_filter_visible_contents(keyword, contents), days)
     if parsed_content_source:
+        if parsed_content_source in ARCHIVE_CONTENT_SOURCES:
+            visible = _dedupe_archive_contents(visible)
         return visible[:20]
     if keyword.kind not in {"keyword", "github_repo"}:
         return visible[:20]
 
-    archive_items = [item for item in visible if item.source in ARCHIVE_CONTENT_SOURCES]
+    archive_items = _dedupe_archive_contents([item for item in visible if item.source in ARCHIVE_CONTENT_SOURCES])
     other_items = [item for item in visible if item.source not in ARCHIVE_CONTENT_SOURCES]
     if keyword.kind == "github_repo":
         github_items = [item for item in other_items if item.source == "github"]
@@ -729,6 +826,19 @@ def search_keyword(
             .order_by(desc(ContentItem.published_at), desc(ContentItem.fetched_at))
         )
     )
+    keyword_history_contents: list[ContentItem] = []
+    if keyword.kind == "keyword":
+        keyword_history_contents = list(
+            db.scalars(
+                select(ContentItem)
+                .where(
+                    ContentItem.keyword_id == keyword.id,
+                    ContentItem.source.in_(tuple(sorted(KEYWORD_HISTORY_SOURCES))),
+                    ContentItem.published_at.is_not(None),
+                )
+                .order_by(ContentItem.published_at.asc(), ContentItem.id.asc())
+            )
+        )
     content_stmt = (
         select(ContentItem)
         .where(ContentItem.keyword_id == keyword.id)
@@ -747,7 +857,18 @@ def search_keyword(
         parsed_content_source=parsed_content_source,
     )
     filtered_gdelt_contents = _filter_content(_filter_visible_contents(keyword, gdelt_contents), days)
-    series = _apply_trend_semantics(keyword, _build_series(filtered_points))
+    filtered_keyword_history_contents = _filter_content(
+        _filter_visible_contents(keyword, keyword_history_contents),
+        days,
+    )
+    series = _build_series(filtered_points)
+    if keyword.kind == "keyword":
+        series = _replace_archive_series(
+            series,
+            source="keyword_history",
+            replacement=_build_keyword_history_series_from_contents(filtered_keyword_history_contents),
+        )
+    series = _apply_trend_semantics(keyword, series)
     series = _replace_archive_series(
         series,
         source="gdelt",
