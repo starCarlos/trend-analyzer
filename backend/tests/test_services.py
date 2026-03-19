@@ -97,7 +97,9 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIn("filter_hint", app_js)
         self.assertIn("return payload?.providers || [];", app_js)
         self.assertIn("function formatChartTimestamp(value)", app_js)
+        self.assertIn('sparkline-wrap${singlePoint ? " is-single-point" : ""}', app_js)
         self.assertIn(".sparkline-dot", styles)
+        self.assertIn(".sparkline-wrap.is-single-point .sparkline-dot", styles)
 
     def test_provider_status_reports_mock_mode(self) -> None:
         payload = get_provider_status(
@@ -1655,6 +1657,82 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(payload.availability["gdelt_archive"], "ready")
         self.assertIsNone(payload.backfill_job)
 
+    def test_keyword_search_prefetches_newsnow_snapshot_inline_when_history_is_missing(self) -> None:
+        query = f"newsnow-inline-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        class InlineNewsNowProvider:
+            name = "inline-newsnow"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                return []
+
+            def fetch_direct_rss_archive(self, keyword_query: str):
+                return []
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                return []
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                self_query = keyword_query
+                return (
+                    [
+                        TrendPointInput(
+                            source="newsnow",
+                            metric="hot_hit_count",
+                            source_type="snapshot",
+                            bucket_granularity="day",
+                            bucket_start=today,
+                            value=4.0,
+                            raw_json=f'{{"query":"{self_query}"}}',
+                        ),
+                        TrendPointInput(
+                            source="newsnow",
+                            metric="platform_count",
+                            source_type="snapshot",
+                            bucket_granularity="day",
+                            bucket_start=today,
+                            value=2.0,
+                            raw_json=f'{{"query":"{self_query}"}}',
+                        ),
+                    ],
+                    [
+                        ContentItemInput(
+                            source="newsnow",
+                            source_type="snapshot",
+                            external_key=f"{self_query}:snapshot:1",
+                            title=f"{self_query} snapshot item",
+                            url="https://example.com/newsnow/1",
+                            summary="snapshot",
+                            author="provider",
+                            published_at=None,
+                            meta_json="{}",
+                        )
+                    ],
+                )
+
+        with patch("app.services.search.get_data_provider", return_value=InlineNewsNowProvider()):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        newsnow_series = next(
+            series for series in payload.trend.series if series.source == "newsnow" and series.metric == "hot_hit_count"
+        )
+        self.assertEqual([point.value for point in newsnow_series.points], [4.0])
+        self.assertTrue(any(item.source == "newsnow" for item in payload.content_items))
+        self.assertEqual(payload.availability["newsnow_snapshot"], "ready")
+        self.assertIsNone(payload.backfill_job)
+
     def test_search_filters_stored_gdelt_noise_and_rebuilds_series(self) -> None:
         bucket_start = datetime(2026, 3, 17, 0, 0, 0)
         repo_query = f"owner-{uuid4().hex[:8]}/openclaw"
@@ -2315,12 +2393,34 @@ class ServiceTestCase(unittest.TestCase):
 
     def test_keyword_trend_uses_cumulative_newsnow_curve(self) -> None:
         query = f"keyword-{uuid4().hex[:8]}"
-        initial = search_keyword(
-            db=self.db,
-            background_tasks=BackgroundTasks(),
-            query=query,
-            period="all",
-        )
+        class EmptyInlineProvider:
+            name = "empty-inline"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                return ([], [])
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                return []
+
+            def fetch_direct_rss_archive(self, keyword_query: str):
+                return []
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                return []
+
+        with patch("app.services.search.get_data_provider", return_value=EmptyInlineProvider()):
+            initial = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
 
         start_day = utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2)
         raw_values = [2.0, 3.0, 4.0]

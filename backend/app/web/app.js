@@ -309,11 +309,11 @@
         subtitle: "周期 {period}。当前可见 {count} 个来源。",
         context: "{mode} · 周期 {period} · 当前可见 {count} 个来源。",
         no_history: "还没有历史新闻点位。首次搜索会先现抓一轮历史新闻，后台再继续补。",
-        one_point: "当前只有 1 个快照点位。若历史新闻还没补到，就会先从当前快照起步。",
+        one_point: "已经拿到首个真实点位，后续会继续扩成线。",
         curve: "当前看到的是快照累计线，后续如果补到更多带时间的内容，会切成历史新闻线。",
-        history_one_point: "已按带发布时间的内容回溯出历史，但目前只有 1 个点位。",
+        history_one_point: "已经补出首个历史点位，后续会继续扩成完整历史线。",
         history_curve: "历史新闻线已按内容发布时间补出，后续采集还会继续补齐。",
-        no_visible: "当前还没有可见趋势线。普通关键词会先尝试按带发布时间的内容回溯；如果时间信息还不够，就先从今日快照起步。",
+        no_visible: "暂时还没有可用的真实趋势数据；拿到快照点或历史内容后就会出线。",
         points: "{count} 个点位",
         date_separator: " - ",
       },
@@ -672,11 +672,11 @@
         subtitle: "Period {period}. {count} visible source(s).",
         context: "{mode} · Period {period} · {count} visible source(s).",
         no_history: "No historical news points yet. The first lookup will try a live historical fetch, then background collection keeps extending it.",
-        one_point: "Only one snapshot point is visible right now. If dated history is still missing, the curve starts from the live snapshot first.",
+        one_point: "The first real point is in. The line will keep extending as more history arrives.",
         curve: "The current curve is still the accumulated snapshot view. Once more dated content lands, it will switch over to the historical news line.",
-        history_one_point: "A first historical point was derived from dated content, but only one point is available so far.",
+        history_one_point: "The first historical point is ready. More dated content will extend it into a fuller line.",
         history_curve: "The historical news line is backfilled from publish times, and later collections will keep extending it.",
-        no_visible: "No visible trend line is ready yet. Plain keywords first try to backfill from dated content; if that is still sparse, the curve starts from today's snapshot.",
+        no_visible: "No real trend data is available yet. The line will appear once a snapshot or dated historical content lands.",
         points: "{count} points",
         date_separator: " - ",
       },
@@ -1633,10 +1633,17 @@
       const y = height - ((point.value - min) / range) * (height - 10) - 5;
       return { ...point, x, y };
     });
-    const path = geometry
+    const basePath = geometry
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
       .join(" ");
-    const area = `${path} L ${width} ${height} L 0 ${height} Z`;
+    const singlePoint = points.length === 1;
+    const anchor = geometry[0];
+    const path = singlePoint
+      ? `M ${(anchor.x - 34).toFixed(2)} ${anchor.y.toFixed(2)} L ${(anchor.x + 34).toFixed(2)} ${anchor.y.toFixed(2)}`
+      : basePath;
+    const area = singlePoint
+      ? `M ${(anchor.x - 34).toFixed(2)} ${anchor.y.toFixed(2)} L ${(anchor.x + 34).toFixed(2)} ${anchor.y.toFixed(2)} L ${(anchor.x + 34).toFixed(2)} ${height} L ${(anchor.x - 34).toFixed(2)} ${height} Z`
+      : `${path} L ${width} ${height} L 0 ${height} Z`;
     const pointStep = points.length > 1 ? width / (points.length - 1) : width;
     const hitRadius = Math.max(8, Math.min(18, pointStep / 2));
     const dotRadius = points.length === 1 ? 4.5 : 3.2;
@@ -1670,7 +1677,7 @@
       })
       .join("");
     return `
-      <div class="sparkline-wrap">
+      <div class="sparkline-wrap${singlePoint ? " is-single-point" : ""}">
         <svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
           <path class="sparkline-area" d="${area}"></path>
           <path class="sparkline-path" d="${path}"></path>

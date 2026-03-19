@@ -307,6 +307,24 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
             _upsert_trend_point(db, keyword.id, point)
         changed = True
 
+    if keyword.kind == "keyword" and not has_history_content and not _has_fresh_newsnow_snapshot(db, keyword.id):
+        try:
+            snapshot_points, snapshot_items = provider.fetch_newsnow_snapshot(keyword.normalized_query)
+        except Exception:
+            db.rollback()
+        else:
+            for point in snapshot_points:
+                _upsert_trend_point(db, keyword.id, point)
+            for item in snapshot_items:
+                _upsert_content_item(db, keyword.id, item)
+            db.flush()
+            changed = True
+            has_history_content = any(item.published_at for item in snapshot_items)
+            if has_history_content:
+                for point in _derive_keyword_history_points(db, keyword):
+                    _upsert_trend_point(db, keyword.id, point)
+                changed = True
+
     if keyword.kind == "github_repo":
         for source in ARCHIVE_CONTENT_SOURCES:
             archive_timeline = _derive_archive_timeline_points(db, keyword, source)
