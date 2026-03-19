@@ -2,33 +2,56 @@
 
 [English](./README.md) | 简体中文
 
-TrendScope 是一个本地优先的趋势分析应用，核心运行路径是 FastAPI 后端直接提供 API 和默认网页界面。
+TrendScope 是一个本地优先的趋势分析应用，用来在一个地方同时跟踪 GitHub 仓库和开放网络关键词的热度变化。
 
-当前主产品路径是 `backend/`。`frontend/` 目录只是保留的历史 Next.js 原型，不是当前运行入口。
+当前主产品路径是 `backend/`：它是一个直接提供 API、内置网页界面、SQLite 存储、CLI 和采集流程的 FastAPI 应用。`frontend/` 目录只是保留的历史 Next.js 原型，不是当前运行入口。
 
-## 当前状态
+## 产品预览
 
-- 主运行形态：`FastAPI + SQLite + 内置静态 Web UI`
-- 默认本地地址：`http://127.0.0.1:5081`
-- 默认 provider 模式：`mock`
-- 核心真实源：`GitHub` 和 `NewsNow`
-- 可选补充历史源：`Google News`、`Direct RSS`、`GDELT`
-- 真实源验证可通过 `CLI`、`/tracked` 页面和验收脚本执行
+下面这些都是当前内置 Web UI 的真实截图，不是示意图。
 
-## 当前已实现
+<p align="center">
+  <img src="./docs/images/readme-search-repo.png" alt="TrendScope 仓库搜索页，展示 GitHub 历史、信号摘要和内容流" width="100%" />
+</p>
+
+| 关键词搜索 | 追踪面板 |
+| --- | --- |
+| ![TrendScope 关键词搜索页，展示历史新闻线和相关内容](./docs/images/readme-search-keyword.png) | ![TrendScope 追踪面板，展示追踪项和 provider 工具](./docs/images/readme-tracked-dashboard.png) |
+
+## 亮点
 
 - 支持搜索 GitHub URL、`owner/repo`、普通关键词，以及能稳定解析的裸仓库名
 - 普通关键词会同时尝试中英文变体搜索，再合并去重
-- 首包先返回部分结果，缺失的历史和内容异步回填
-- 展示趋势线、今日快照卡片、数据可用性状态和内容列表
-- 可在搜索页执行 Track/Untrack
-- 可在 `/tracked` 页面管理追踪项
-- 可在 `/tracked` 页面执行 provider 预检、`Verify real`、`Run smoke`、scheduler 检查和手动采集
-- 支持本地验收和真实 provider 验收，包括隔离的 scheduler probe 和 failure readability probe
+- 首包先返回当前已有结果，缺失的历史和内容异步回填
+- 在一个内置界面里同时展示趋势线、快照、内容流、可用性状态和追踪能力
+- 可在 `/tracked` 页面管理追踪项，并执行 provider 诊断、smoke 检查和手动采集
+
+## 当前产品状态
+
+- 主运行形态：`FastAPI + SQLite + 内置静态 Web UI`
+- 默认本地地址：`http://127.0.0.1:5081`
+- 示例环境起始模式：`mock`
+- 核心真实源：`GitHub` 和 `NewsNow`
+- 可选补充历史源：`Google News`、`Direct RSS`、`GDELT`
+- HTTP API、CLI、`/tracked` 页面和验收脚本都可用于验证当前行为
+
+## 架构一览
+
+```text
+backend/   FastAPI 应用、SQLite 模型、provider 流程、CLI 和静态 Web UI
+frontend/  仅保留作参考的历史 Next.js 原型
+docs/      产品、技术、运行和验收文档
+scripts/   本地验收、真实源验收和 smoke 辅助脚本
+```
 
 ## 快速开始
 
 ### 推荐本地启动
+
+前置要求：
+
+- Python `3.12+`
+- `uv`
 
 ```bash
 cd backend
@@ -45,6 +68,11 @@ PORT=5081 RELOAD=1 uv run python run_server.py
 
 ### Docker 启动
 
+前置要求：
+
+- Docker
+- Docker Compose v2
+
 ```bash
 docker compose up --build
 ```
@@ -57,6 +85,13 @@ docker compose up --build
 cd backend
 uv run uvicorn app.main:app --host 127.0.0.1 --port 5081 --reload
 ```
+
+## 可直接尝试的查询
+
+- `openai/openai-python`
+- `https://github.com/vercel/next.js`
+- `cursor`
+- `manus`
 
 ## Provider 模式
 
@@ -76,30 +111,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 5081 --reload
 - [`backend/.env.auto.example`](./backend/.env.auto.example)
 - [`backend/.env.real.example`](./backend/.env.real.example)
 
-运行说明：
-
-- [`docs/provider-runtime.md`](./docs/provider-runtime.md)
-
-## 真实源覆盖范围
-
-### 核心 Provider
-
-- `GitHub`
-  - repository 历史
-  - repository 内容流
-- `NewsNow`
-  - 每日快照
-  - 内容流
-
-### 可选补充历史源
-
-- `Google News`
-- `Direct RSS`
-- `GDELT`
-
-这些补充源主要用于增强关键词历史与内容完整性；默认真实搜索阻塞链路仍以 `GitHub` 和 `NewsNow` 为核心。
-
-### 常用运行配置
+常用真实源配置：
 
 - `NEWSNOW_SOURCE_IDS`
 - `GOOGLE_NEWS_ENABLED`
@@ -108,6 +120,10 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 5081 --reload
 - `ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON`
 - `REQUEST_TIMEOUT_SECONDS`
 - `HTTP_PROXY`
+
+运行说明：
+
+- [`docs/provider-runtime.md`](./docs/provider-runtime.md)
 
 `ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON` 可用于给歧义词增加上下文约束，例如：
 
@@ -210,24 +226,6 @@ backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mod
 - [`docs/real-provider-acceptance-record-template.md`](./docs/real-provider-acceptance-record-template.md)
 - [`docs/acceptance-records/`](./docs/acceptance-records)
 
-## 仓库结构
-
-```text
-backend/   FastAPI 应用、SQLite 模型、provider 流程、CLI 和静态 Web UI
-frontend/  仅保留作参考的历史 Next.js 原型
-docs/      产品、技术、运行和验收文档
-scripts/   本地验收、真实源验收和 smoke 辅助脚本
-```
-
-## 关键文档
-
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md)
-- [`docs/README.md`](./docs/README.md)
-- [`docs/product-prd.md`](./docs/product-prd.md)
-- [`docs/technical-spec.md`](./docs/technical-spec.md)
-- [`docs/current-functional-flow.md`](./docs/current-functional-flow.md)
-- [`docs/mvp-completion-checklist.md`](./docs/mvp-completion-checklist.md)
-
 ## API 一览
 
 - `GET /api/health`
@@ -244,13 +242,18 @@ scripts/   本地验收、真实源验收和 smoke 辅助脚本
 - `POST /api/provider-verify`
 - `POST /api/provider-smoke`
 
+## 关键文档
+
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- [`docs/README.md`](./docs/README.md)
+- [`docs/product-prd.md`](./docs/product-prd.md)
+- [`docs/technical-spec.md`](./docs/technical-spec.md)
+- [`docs/current-functional-flow.md`](./docs/current-functional-flow.md)
+- [`docs/docker-deployment.md`](./docs/docker-deployment.md)
+- [`docs/mvp-completion-checklist.md`](./docs/mvp-completion-checklist.md)
+
 ## 许可证
 
 仓库代码采用 [`Apache-2.0`](./LICENSE) 许可证。
 
 这个许可证覆盖本仓库中的代码和随仓库分发的文档；它不会改变 GitHub、NewsNow、Google News、Direct RSS 或 GDELT 等第三方数据源和商标本身的使用条款。
-
-## 备注
-
-- 当前仍以 Python 后端路径为第一优先级。
-- 如果你只想跑当前可用产品路径，请从 `backend/` 开始，而不是 `frontend/`。
