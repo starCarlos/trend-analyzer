@@ -177,6 +177,31 @@ uv run python -m app.cli provider-smoke openai/openai-python --probe-mode real -
 - GitHub: `GET /rate_limit`
 - NewsNow: 优先 `GET /api/s?id=<第一个 source id>`，兼容回退到 `GET /api/s/<第一个 source id>`
 
+## 8.5 Archive 相关性配置
+
+如果你需要给歧义词加上下文保护，可以配置：
+
+- `ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON`
+
+格式是 JSON 对象，key 为关键词，value 为上下文 token 列表。例如：
+
+```json
+{
+  "manus": ["ai", "agent", "agents"],
+  "claude": ["anthropic", "code", "ai"]
+}
+```
+
+当前这项配置会影响：
+
+- `GDELT` 抓取阶段的弱词过滤
+- 搜索读路径里对已落库 archive 内容的再次过滤
+
+适用场景：
+
+- 某个词既可能是产品名，也可能是普通名词或人名
+- 你想减少 `GDELT` 的误命中，又不想继续写死到代码里
+
 ## 9. 结果解释
 
 ### `provider-status`

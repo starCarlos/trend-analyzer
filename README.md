@@ -66,6 +66,13 @@ Ready-made env templates:
 - [`backend/.env.auto.example`](./backend/.env.auto.example)
 - [`backend/.env.real.example`](./backend/.env.real.example)
 
+Archive relevance tuning:
+
+- `ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON`
+  - Optional JSON map for weak or ambiguous keywords
+  - Example: `{"manus":["ai","agent","agents"],"claude":["anthropic","code","ai"]}`
+  - Used by the shared archive relevance layer for `GDELT` and read-path filtering
+
 Runtime guide:
 
 - [`docs/provider-runtime.md`](./docs/provider-runtime.md)
