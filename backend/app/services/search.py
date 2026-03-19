@@ -31,7 +31,15 @@ from app.services.backfill import (
     _upsert_trend_point,
     run_backfill_job,
 )
-from app.services.providers import RealDataProvider, get_data_provider
+from app.services.archive_relevance import (
+    archive_match_strength,
+    build_ambiguous_query_contexts,
+    gdelt_matches_query,
+    gdelt_title_key,
+    gdelt_title_token_set,
+    token_jaccard,
+)
+from app.services.providers import get_data_provider
 from app.services.provider_registry import ARCHIVE_PROVIDER_FETCHERS
 from app.services.provider_types import TrendPointInput
 from app.services.query_parser import SearchTarget, resolve_search_query
@@ -397,12 +405,14 @@ def _is_synthetic_json(raw_json: str | None) -> bool:
 
 
 def _filter_visible_contents(keyword: Keyword, contents: list[ContentItem]) -> list[ContentItem]:
-    if get_settings().provider_mode == "mock":
+    settings = get_settings()
+    if settings.provider_mode == "mock":
         return contents
 
     visible: list[ContentItem] = []
     archive_queries = _archive_queries(keyword)
     gdelt_queries = archive_queries
+    ambiguous_query_contexts = build_ambiguous_query_contexts(settings.archive_ambiguous_query_contexts_json)
     seen_gdelt_titles: set[str] = set()
     kept_gdelt_title_groups: list[tuple[date, set[str]]] = []
 
@@ -411,7 +421,7 @@ def _filter_visible_contents(keyword: Keyword, contents: list[ContentItem]) -> l
             continue
         if item.source == "direct_rss":
             if not any(
-                RealDataProvider._archive_match_strength(
+                archive_match_strength(
                     query,
                     title=item.title,
                     summary=item.summary,
@@ -431,11 +441,12 @@ def _filter_visible_contents(keyword: Keyword, contents: list[ContentItem]) -> l
             (
                 query
                 for query in gdelt_queries
-                if RealDataProvider._gdelt_matches_query(
+                if gdelt_matches_query(
                     query,
                     title=item.title,
                     url=item.url,
                     domain=item.author,
+                    ambiguous_query_contexts=ambiguous_query_contexts,
                 )
             ),
             None,
@@ -443,17 +454,17 @@ def _filter_visible_contents(keyword: Keyword, contents: list[ContentItem]) -> l
         if not matched_query:
             continue
 
-        title_key = RealDataProvider._gdelt_title_key(item.title)
+        title_key = gdelt_title_key(item.title)
         if title_key in seen_gdelt_titles:
             continue
 
         published_day = item.published_at.date() if item.published_at else None
-        title_tokens = RealDataProvider._gdelt_title_token_set(item.title, matched_query)
+        title_tokens = gdelt_title_token_set(item.title, matched_query)
         is_duplicate_story = (
             published_day is not None
             and bool(title_tokens)
             and any(
-                kept_day == published_day and RealDataProvider._token_jaccard(title_tokens, kept_tokens) >= 0.82
+                kept_day == published_day and token_jaccard(title_tokens, kept_tokens) >= 0.82
                 for kept_day, kept_tokens in kept_gdelt_title_groups
                 if kept_tokens
             )

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     gdelt_enabled: bool = True
     gdelt_history_days: int = 90
     gdelt_max_items: int = 80
+    archive_ambiguous_query_contexts_json: str = ""
     request_timeout_seconds: float = 8.0
     http_proxy: str = ""
 

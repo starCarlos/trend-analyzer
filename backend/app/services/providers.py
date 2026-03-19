@@ -12,6 +12,15 @@ import xml.etree.ElementTree as ET
 
 from app.config import Settings, get_settings
 from app.models import utcnow
+from app.services.archive_relevance import (
+    HAS_CJK_RE,
+    archive_match_strength,
+    build_ambiguous_query_contexts,
+    gdelt_matches_query,
+    gdelt_title_key,
+    gdelt_title_token_set,
+    token_jaccard,
+)
 from app.services.direct_rss_catalog import iter_direct_rss_feeds
 from app.services.mock_providers import generate_github_content, generate_github_history, generate_newsnow_snapshot
 from app.services.provider_urls import iter_newsnow_source_endpoints, newsnow_request_headers
@@ -36,69 +45,9 @@ JUEJIN_TIME_RE = re.compile(r'<time[^>]+datetime="([^"]+)"')
 JUEJIN_SCHEMA_DATE_RE = re.compile(r'"datePublished":"([^"]+)"')
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 WHITESPACE_RE = re.compile(r"\s+")
-SEARCH_TOKEN_RE = re.compile(r"[a-z0-9]+")
-HAS_CJK_RE = re.compile(r"[\u3400-\u9FFF]")
 GOOGLE_NEWS_SOURCE_BLOCKLIST = {"x.com", "twitter.com"}
 GDELT_DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 ATOM_NAMESPACE = {"atom": "http://www.w3.org/2005/Atom"}
-GDELT_TITLE_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "as",
-    "at",
-    "by",
-    "for",
-    "from",
-    "in",
-    "into",
-    "is",
-    "of",
-    "on",
-    "or",
-    "says",
-    "saying",
-    "the",
-    "to",
-    "with",
-}
-GDELT_AMBIGUOUS_QUERY_CONTEXTS = {
-    "claude": {
-        "ai",
-        "agent",
-        "agents",
-        "anthropic",
-        "api",
-        "apis",
-        "app",
-        "apps",
-        "artifact",
-        "artifacts",
-        "assistant",
-        "assistants",
-        "chatgpt",
-        "code",
-        "computer",
-        "desktop",
-        "down",
-        "feature",
-        "features",
-        "haiku",
-        "llm",
-        "model",
-        "models",
-        "openai",
-        "opus",
-        "outage",
-        "preview",
-        "prompt",
-        "prompts",
-        "sonnet",
-        "status",
-        "task",
-        "tasks",
-    }
-}
 
 
 class DataProvider(Protocol):
@@ -154,6 +103,9 @@ class RealDataProvider:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._published_at_cache: dict[str, datetime | None] = {}
+        self._ambiguous_query_contexts = build_ambiguous_query_contexts(
+            settings.archive_ambiguous_query_contexts_json
+        )
         handlers: list[request.BaseHandler] = []
         if settings.http_proxy:
             handlers.append(request.ProxyHandler({"http": settings.http_proxy, "https": settings.http_proxy}))
@@ -597,110 +549,6 @@ class RealDataProvider:
         feeds.sort(key=sort_key)
         return feeds
 
-    @staticmethod
-    def _gdelt_tokens(query: str) -> list[str]:
-        normalized = " ".join(query.split()).casefold()
-        if not normalized:
-            return []
-        if HAS_CJK_RE.search(normalized):
-            return [normalized]
-        tokens = []
-        for token in SEARCH_TOKEN_RE.findall(normalized):
-            if len(token) > 1 or token in {"ai", "vr", "ar", "mcp"}:
-                tokens.append(token)
-        return tokens or [normalized]
-
-    @staticmethod
-    def _gdelt_match_text(value: str | None) -> str:
-        if not value:
-            return ""
-        return " ".join(SEARCH_TOKEN_RE.findall(value.casefold()))
-
-    @classmethod
-    def _archive_text_matches_query(cls, query: str, value: str | None) -> bool:
-        normalized_query = " ".join(query.split()).casefold()
-        if not normalized_query or not value:
-            return False
-        if HAS_CJK_RE.search(normalized_query):
-            return normalized_query in value.casefold()
-
-        tokens = cls._gdelt_tokens(normalized_query)
-        if not tokens:
-            return False
-        value_tokens = set(SEARCH_TOKEN_RE.findall(value.casefold()))
-        return all(token in value_tokens for token in tokens)
-
-    @classmethod
-    def _archive_match_strength(
-        cls,
-        query: str,
-        *,
-        title: str | None,
-        summary: str | None = None,
-        url: str | None = None,
-    ) -> str:
-        if cls._archive_text_matches_query(query, title) or cls._archive_text_matches_query(query, url):
-            return "strong"
-        if cls._archive_text_matches_query(query, summary):
-            return "weak"
-        return "none"
-
-    @classmethod
-    def _gdelt_title_key(cls, title: str) -> str:
-        return cls._gdelt_match_text(title)
-
-    @classmethod
-    def _gdelt_title_token_set(cls, title: str, query: str) -> set[str]:
-        query_tokens = set(cls._gdelt_tokens(query))
-        return {
-            token
-            for token in SEARCH_TOKEN_RE.findall(title.casefold())
-            if len(token) > 2 and token not in query_tokens and token not in GDELT_TITLE_STOPWORDS
-        }
-
-    @staticmethod
-    def _token_jaccard(left: set[str], right: set[str]) -> float:
-        if not left or not right:
-            return 0.0
-        overlap = len(left & right)
-        union = len(left | right)
-        return overlap / union if union else 0.0
-
-    @classmethod
-    def _gdelt_matches_query(cls, query: str, *, title: str | None, url: str | None, domain: str | None) -> bool:
-        normalized_query = " ".join(query.split()).casefold()
-        title_text = cls._gdelt_match_text(title)
-        url_text = cls._gdelt_match_text(url)
-        searchable = " ".join(part for part in (title_text, url_text) if part).strip()
-        if not searchable or not normalized_query:
-            return False
-        if HAS_CJK_RE.search(normalized_query):
-            raw_searchable = " ".join(part for part in (title, url) if part).casefold()
-            return normalized_query in raw_searchable
-        tokens = cls._gdelt_tokens(normalized_query)
-        if not tokens:
-            return False
-        title_tokens = set(title_text.split())
-        url_tokens = set(url_text.split())
-        matched = normalized_query in searchable or all(token in title_tokens or token in url_tokens for token in tokens)
-        if not matched:
-            return False
-
-        if len(tokens) != 1:
-            return True
-
-        context_tokens = GDELT_AMBIGUOUS_QUERY_CONTEXTS.get(tokens[0])
-        if not context_tokens:
-            return True
-
-        context_text = " ".join(
-            part for part in (title_text, url_text, cls._gdelt_match_text(domain)) if part
-        ).strip()
-        if not context_text:
-            return False
-        available_tokens = set(context_text.split())
-        return any(token in available_tokens for token in context_tokens)
-
     def _build_gdelt_archive_url(self, query: str) -> str:
         search_query = f'"{query.strip().replace("\"", " ")}"'
         params = {
@@ -759,7 +607,13 @@ class RealDataProvider:
             domain = self._clean_html_text(str(article.get("domain") or "").strip()) or "GDELT"
             if not title:
                 continue
-            if not self._gdelt_matches_query(normalized_query, title=title, url=article_url, domain=domain):
+            if not gdelt_matches_query(
+                normalized_query,
+                title=title,
+                url=article_url,
+                domain=domain,
+                ambiguous_query_contexts=self._ambiguous_query_contexts,
+            ):
                 continue
 
             published_at = self._parse_gdelt_datetime(str(article.get("seendate") or "").strip())
@@ -768,12 +622,12 @@ class RealDataProvider:
 
             if article_url and article_url in seen_urls:
                 continue
-            title_key = self._gdelt_title_key(title)
+            title_key = gdelt_title_key(title)
             if title_key in seen_titles:
                 continue
-            title_tokens = self._gdelt_title_token_set(title, normalized_query)
+            title_tokens = gdelt_title_token_set(title, normalized_query)
             is_duplicate_story = any(
-                kept_day == published_at.date() and self._token_jaccard(title_tokens, kept_tokens) >= 0.82
+                kept_day == published_at.date() and token_jaccard(title_tokens, kept_tokens) >= 0.82
                 for kept_day, kept_tokens in kept_title_groups
                 if title_tokens and kept_tokens
             )
@@ -985,7 +839,7 @@ class RealDataProvider:
                 )
                 if not title:
                     continue
-                if self._archive_match_strength(query, title=title, summary=description, url=link) != "strong":
+                if archive_match_strength(query, title=title, summary=description, url=link) != "strong":
                     continue
 
                 published_at = self._parse_feed_datetime(node.findtext("pubDate") or node.findtext("updated"))
@@ -1040,7 +894,7 @@ class RealDataProvider:
                 link = self._clean_html_text(link_node.get("href")) if link_node is not None else None
                 if not title:
                     continue
-                if self._archive_match_strength(query, title=title, summary=summary, url=link) != "strong":
+                if archive_match_strength(query, title=title, summary=summary, url=link) != "strong":
                     continue
 
                 published_at = self._parse_feed_datetime(
