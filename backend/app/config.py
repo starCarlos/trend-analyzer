@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     google_news_enabled: bool = True
     google_news_history_days: int = 365
     google_news_max_items: int = 80
+    direct_rss_enabled: bool = True
+    direct_rss_max_items: int = 80
+    direct_rss_extra_feeds: str = ""
     gdelt_enabled: bool = True
     gdelt_history_days: int = 90
     gdelt_max_items: int = 80

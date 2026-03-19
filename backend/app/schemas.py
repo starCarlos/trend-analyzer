@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-LEGACY_PROVIDER_FIELDS = ("github", "newsnow", "google_news", "gdelt")
+LEGACY_PROVIDER_FIELDS = ("github", "newsnow", "google_news", "direct_rss", "gdelt")
 
 
 class KeywordPayload(BaseModel):
@@ -194,6 +194,10 @@ class ProviderStatusPayload(BaseModel):
         return self.get_provider("google_news")
 
     @property
+    def direct_rss(self) -> ProviderCheckPayload | None:
+        return self.get_provider("direct_rss")
+
+    @property
     def gdelt(self) -> ProviderCheckPayload | None:
         return self.get_provider("gdelt")
 
@@ -243,6 +247,10 @@ class ProviderVerifyPayload(BaseModel):
     @property
     def google_news(self) -> ProviderProbePayload | None:
         return self.get_provider("google_news")
+
+    @property
+    def direct_rss(self) -> ProviderProbePayload | None:
+        return self.get_provider("direct_rss")
 
     @property
     def gdelt(self) -> ProviderProbePayload | None:

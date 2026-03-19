@@ -7,9 +7,10 @@ from urllib import error, parse, request
 
 from app.config import Settings, get_settings
 from app.schemas import ProviderProbePayload, ProviderVerifyPayload
+from app.services.direct_rss_catalog import iter_direct_rss_feeds
 from app.services.provider_diagnostics import get_provider_status
 from app.services.provider_registry import iter_online_provider_specs
-from app.services.providers import GDELT_DOC_API_URL
+from app.services.providers import ATOM_NAMESPACE, GDELT_DOC_API_URL
 from app.services.provider_urls import build_newsnow_source_endpoint, iter_newsnow_source_endpoints, newsnow_request_headers
 
 
@@ -40,6 +41,7 @@ def verify_provider_connectivity(
             "github": "Mock 模式下不会探测 GitHub 真实网络连通性。",
             "newsnow": "Mock 模式下不会探测 NewsNow 真实网络连通性。",
             "google_news": "Mock 模式下不会探测 Google News 真实网络连通性。",
+            "direct_rss": "Mock 模式下不会探测 Direct RSS 真实网络连通性。",
             "gdelt": "Mock 模式下不会探测 GDELT 真实网络连通性。",
         }
         return ProviderVerifyPayload(
@@ -66,6 +68,7 @@ def verify_provider_connectivity(
         "github": lambda check: _verify_github(settings, check, client),
         "newsnow": lambda check: _verify_newsnow(settings, check, client),
         "google_news": lambda check: _verify_google_news(settings, check, text_client),
+        "direct_rss": lambda check: _verify_direct_rss(settings, check, text_client),
         "gdelt": lambda check: _verify_gdelt(settings, check, text_client),
     }
     probes = [verify_handlers[spec.source](checks_by_source.get(spec.source)) for spec in iter_online_provider_specs()]
@@ -341,6 +344,62 @@ def _verify_gdelt(
     )
 
 
+def _verify_direct_rss(
+    settings: Settings,
+    provider_check,
+    request_text: RequestText,
+) -> ProviderProbePayload:
+    endpoint = _build_direct_rss_probe_url(settings)
+    if provider_check is None or not provider_check.can_use_real_provider:
+        return ProviderProbePayload(
+            source="direct_rss",
+            attempted_provider="real",
+            status="skipped",
+            endpoint=endpoint if settings.direct_rss_enabled else None,
+            message="跳过 Direct RSS 在线探测，因为本地配置不完整。",
+        )
+
+    try:
+        xml_text, _ = request_text(
+            endpoint,
+            {
+                "User-Agent": "TrendScope/0.1",
+                "Accept": "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+    except Exception as exc:
+        return ProviderProbePayload(
+            source="direct_rss",
+            attempted_provider="real",
+            status="failed",
+            endpoint=endpoint,
+            message=f"Direct RSS 在线探测失败: {exc}",
+        )
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        return ProviderProbePayload(
+            source="direct_rss",
+            attempted_provider="real",
+            status="failed",
+            endpoint=endpoint,
+            message=f"Direct RSS 解析失败: {exc}",
+        )
+
+    item_count = len(root.findall("./channel/item"))
+    if item_count == 0 and root.tag.endswith("feed"):
+        item_count = len(root.findall("atom:entry", ATOM_NAMESPACE))
+
+    return ProviderProbePayload(
+        source="direct_rss",
+        attempted_provider="real",
+        status="success",
+        endpoint=endpoint,
+        message=f"Direct RSS 在线探测成功。items={item_count}.",
+    )
+
+
 def _request_newsnow_with_retry(
     url: str,
     request_json: RequestJson,
@@ -396,6 +455,11 @@ def _build_gdelt_probe_url() -> str:
         "timespan": "7d",
     }
     return f"{GDELT_DOC_API_URL}?{parse.urlencode(params)}"
+
+
+def _build_direct_rss_probe_url(settings: Settings) -> str:
+    feeds = iter_direct_rss_feeds(settings.direct_rss_extra_feeds)
+    return feeds[0].url if feeds else "https://example.com/direct-rss-unconfigured"
 
 
 def _build_summary(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.config import Settings, get_settings
 from app.schemas import ProviderCheckPayload, ProviderStatusPayload
+from app.services.direct_rss_catalog import iter_direct_rss_feeds
 from app.services.provider_registry import iter_online_provider_specs
 
 
@@ -17,6 +18,7 @@ def get_provider_status(settings: Settings | None = None) -> ProviderStatusPaylo
         "github": _diagnose_github,
         "newsnow": _diagnose_newsnow,
         "google_news": _diagnose_google_news,
+        "direct_rss": _diagnose_direct_rss,
         "gdelt": _diagnose_gdelt,
     }
     providers = [handlers[spec.source](settings, mode) for spec in iter_online_provider_specs()]
@@ -115,6 +117,41 @@ def _diagnose_google_news(settings: Settings, mode: str) -> ProviderCheckPayload
         auto_fallback_note="Auto 模式下 Google News 真实配置不完整，实际会回退到 mock。",
         mock_note="PROVIDER_MODE=mock，Google News 不会发起真实网络请求。",
         ready_note="Google News RSS 在本地看起来可用，但当前还没有在线验证网络连通性。",
+    )
+
+
+def _diagnose_direct_rss(settings: Settings, mode: str) -> ProviderCheckPayload:
+    issues: list[str] = []
+    warnings: list[str] = []
+    notes: list[str] = ["Direct RSS 使用公开 feed，无需额外 token。"]
+    feeds = iter_direct_rss_feeds(settings.direct_rss_extra_feeds)
+
+    if not settings.direct_rss_enabled:
+        issues.append("DIRECT_RSS_ENABLED=false。")
+    if settings.direct_rss_max_items <= 0:
+        issues.append("DIRECT_RSS_MAX_ITEMS 必须大于 0。")
+    if not feeds:
+        issues.append("Direct RSS feed 列表为空。")
+    if settings.request_timeout_seconds <= 0:
+        issues.append("REQUEST_TIMEOUT_SECONDS 必须大于 0。")
+    if feeds:
+        notes.append(f"当前解析到 {len(feeds)} 个公开 RSS feed。")
+    if settings.direct_rss_extra_feeds.strip():
+        notes.append("DIRECT_RSS_EXTRA_FEEDS 已配置，会追加到默认 feed 列表。")
+    if settings.http_proxy.strip():
+        notes.append("HTTP_PROXY 已配置，真实请求会经过代理。")
+
+    return _build_check(
+        source="direct_rss",
+        mode=mode,
+        can_use_real_provider=not issues,
+        issues=issues,
+        warnings=warnings,
+        notes=notes,
+        auto_ready_note="Auto 模式会优先请求真实 Direct RSS，失败后回退到 mock。",
+        auto_fallback_note="Auto 模式下 Direct RSS 真实配置不完整，实际会回退到 mock。",
+        mock_note="PROVIDER_MODE=mock，Direct RSS 不会发起真实网络请求。",
+        ready_note="Direct RSS 在本地看起来可用，但当前还没有在线验证网络连通性。",
     )
 
 

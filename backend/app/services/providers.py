@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 
 from app.config import Settings, get_settings
 from app.models import utcnow
+from app.services.direct_rss_catalog import iter_direct_rss_feeds
 from app.services.mock_providers import generate_github_content, generate_github_history, generate_newsnow_snapshot
 from app.services.provider_urls import iter_newsnow_source_endpoints, newsnow_request_headers
 from app.services.provider_types import ContentItemInput, TrendPointInput
@@ -39,6 +40,7 @@ SEARCH_TOKEN_RE = re.compile(r"[a-z0-9]+")
 HAS_CJK_RE = re.compile(r"[\u3400-\u9FFF]")
 GOOGLE_NEWS_SOURCE_BLOCKLIST = {"x.com", "twitter.com"}
 GDELT_DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+ATOM_NAMESPACE = {"atom": "http://www.w3.org/2005/Atom"}
 GDELT_TITLE_STOPWORDS = {
     "a",
     "an",
@@ -74,6 +76,15 @@ class DataProvider(Protocol):
     def fetch_newsnow_snapshot(self, query: str) -> tuple[list[TrendPointInput], list[ContentItemInput]]:
         raise NotImplementedError
 
+    def fetch_google_news_archive(self, query: str) -> list[ContentItemInput]:
+        raise NotImplementedError
+
+    def fetch_direct_rss_archive(self, query: str) -> list[ContentItemInput]:
+        raise NotImplementedError
+
+    def fetch_gdelt_archive(self, query: str) -> list[ContentItemInput]:
+        raise NotImplementedError
+
 
 class MockDataProvider:
     name = "mock"
@@ -92,6 +103,10 @@ class MockDataProvider:
         return []
 
     def fetch_gdelt_archive(self, query: str) -> list[ContentItemInput]:
+        del query
+        return []
+
+    def fetch_direct_rss_archive(self, query: str) -> list[ContentItemInput]:
         del query
         return []
 
@@ -495,6 +510,30 @@ class RealDataProvider:
         except (TypeError, ValueError):
             return None
 
+    @classmethod
+    def _parse_feed_datetime(cls, value: str | None) -> datetime | None:
+        if not value:
+            return None
+        candidate = " ".join(value.strip().split())
+        if not candidate:
+            return None
+
+        parsed = cls._parse_rfc822_datetime(candidate)
+        if parsed:
+            return parsed
+
+        try:
+            return datetime.fromisoformat(candidate.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            pass
+
+        for fmt in ("%Y-%m-%d %H:%M:%S %z", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
+            try:
+                return datetime.strptime(candidate, fmt).replace(tzinfo=None)
+            except ValueError:
+                continue
+        return None
+
     @staticmethod
     def _parse_gdelt_datetime(value: str | None) -> datetime | None:
         if not value:
@@ -503,6 +542,23 @@ class RealDataProvider:
             return datetime.strptime(value, "%Y%m%dT%H%M%SZ")
         except ValueError:
             return None
+
+    @staticmethod
+    def _direct_rss_feed_order(query: str, extra_feeds: str) -> list:
+        feeds = list(iter_direct_rss_feeds(extra_feeds))
+        prefer_zh = bool(HAS_CJK_RE.search(query))
+        primary_language = "zh" if prefer_zh else "en"
+        secondary_language = "en" if prefer_zh else "zh"
+
+        def sort_key(feed) -> tuple[int, str]:
+            if getattr(feed, "language", "any") == primary_language:
+                return (0, feed.label.casefold())
+            if getattr(feed, "language", "any") == secondary_language:
+                return (1, feed.label.casefold())
+            return (2, feed.label.casefold())
+
+        feeds.sort(key=sort_key)
+        return feeds
 
     @staticmethod
     def _gdelt_tokens(query: str) -> list[str]:
@@ -827,6 +883,172 @@ class RealDataProvider:
 
         return []
 
+    def _parse_direct_rss_feed(self, xml_text: str, query: str, *, request_url: str, source_label: str) -> list[ContentItemInput]:
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError as exc:
+            raise ProviderError(f"Invalid direct RSS payload from {request_url}: {exc}") from exc
+
+        query_lc = query.casefold()
+        items: list[ContentItemInput] = []
+
+        if root.tag.endswith("rss"):
+            nodes = root.findall("./channel/item")
+            for index, node in enumerate(nodes):
+                title = self._clean_html_text(node.findtext("title"))
+                description = self._clean_html_text(node.findtext("description"))
+                author = (
+                    self._clean_html_text(node.findtext("author"))
+                    or self._clean_html_text(node.findtext("{http://purl.org/dc/elements/1.1/}creator"))
+                    or source_label
+                )
+                searchable_text = " ".join(part for part in (title, description, author) if part).casefold()
+                if not title or query_lc not in searchable_text:
+                    continue
+
+                link = self._clean_html_text(node.findtext("link"))
+                published_at = self._parse_feed_datetime(node.findtext("pubDate") or node.findtext("updated"))
+                if not published_at:
+                    continue
+
+                digest = hashlib.sha256(
+                    "\0".join((query, source_label, published_at.isoformat(), title, str(index))).encode("utf-8")
+                ).hexdigest()[:24]
+                items.append(
+                    ContentItemInput(
+                        source="direct_rss",
+                        source_type="archive",
+                        external_key=f"{query}:{digest}",
+                        title=title,
+                        url=link,
+                        summary=description,
+                        author=author,
+                        published_at=published_at,
+                        meta_json=json.dumps(
+                            {
+                                "provider": self.name,
+                                "query": query,
+                                "request_url": request_url,
+                                "feed_label": source_label,
+                            }
+                        ),
+                    )
+                )
+            return items
+
+        if root.tag.endswith("feed"):
+            nodes = root.findall("atom:entry", ATOM_NAMESPACE)
+            for index, node in enumerate(nodes):
+                title = self._clean_html_text(node.findtext("atom:title", namespaces=ATOM_NAMESPACE))
+                summary = self._clean_html_text(
+                    node.findtext("atom:summary", namespaces=ATOM_NAMESPACE)
+                    or node.findtext("atom:content", namespaces=ATOM_NAMESPACE)
+                )
+                author = self._clean_html_text(
+                    node.findtext("atom:author/atom:name", namespaces=ATOM_NAMESPACE)
+                ) or source_label
+                searchable_text = " ".join(part for part in (title, summary, author) if part).casefold()
+                if not title or query_lc not in searchable_text:
+                    continue
+
+                link_node = next(
+                    (
+                        candidate
+                        for candidate in node.findall("atom:link", ATOM_NAMESPACE)
+                        if candidate.get("rel") in {None, "alternate"} and candidate.get("href")
+                    ),
+                    None,
+                )
+                link = self._clean_html_text(link_node.get("href")) if link_node is not None else None
+                published_at = self._parse_feed_datetime(
+                    node.findtext("atom:updated", namespaces=ATOM_NAMESPACE)
+                    or node.findtext("atom:published", namespaces=ATOM_NAMESPACE)
+                )
+                if not published_at:
+                    continue
+
+                digest = hashlib.sha256(
+                    "\0".join((query, source_label, published_at.isoformat(), title, str(index))).encode("utf-8")
+                ).hexdigest()[:24]
+                items.append(
+                    ContentItemInput(
+                        source="direct_rss",
+                        source_type="archive",
+                        external_key=f"{query}:{digest}",
+                        title=title,
+                        url=link,
+                        summary=summary,
+                        author=author,
+                        published_at=published_at,
+                        meta_json=json.dumps(
+                            {
+                                "provider": self.name,
+                                "query": query,
+                                "request_url": request_url,
+                                "feed_label": source_label,
+                            }
+                        ),
+                    )
+                )
+            return items
+
+        raise ProviderError(f"Unsupported direct RSS root element from {request_url}: {root.tag}")
+
+    def fetch_direct_rss_archive(self, query: str) -> list[ContentItemInput]:
+        if not self.settings.direct_rss_enabled:
+            return []
+
+        normalized_query = " ".join(query.split())
+        if not normalized_query:
+            return []
+
+        fetched_items: list[ContentItemInput] = []
+        seen_identities: set[tuple[str, str, str]] = set()
+        errors: list[str] = []
+
+        for feed in self._direct_rss_feed_order(normalized_query, self.settings.direct_rss_extra_feeds):
+            try:
+                xml_text = self._request_text(
+                    feed.url,
+                    headers={
+                        "User-Agent": "TrendScope/0.1",
+                        "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1",
+                    },
+                )
+            except Exception as exc:  # pragma: no cover - network dependent
+                errors.append(f"{feed.label}: {exc}")
+                continue
+
+            for item in self._parse_direct_rss_feed(
+                xml_text,
+                normalized_query,
+                request_url=feed.url,
+                source_label=feed.label,
+            ):
+                identity = (
+                    item.title.casefold(),
+                    (item.author or "").casefold(),
+                    item.published_at.isoformat() if item.published_at else "",
+                )
+                if identity in seen_identities:
+                    continue
+                seen_identities.add(identity)
+                fetched_items.append(item)
+                if len(fetched_items) >= self.settings.direct_rss_max_items:
+                    break
+
+            if len(fetched_items) >= self.settings.direct_rss_max_items:
+                break
+
+        if fetched_items:
+            fetched_items.sort(key=lambda item: item.published_at or datetime.min, reverse=True)
+            return fetched_items[: self.settings.direct_rss_max_items]
+
+        if errors:
+            raise ProviderError(f"Direct RSS archive fetch failed: {'；'.join(errors)}")
+
+        return []
+
     def _request_newsnow_source(self, source_id: str) -> dict[str, object]:
         errors: list[str] = []
         for url in iter_newsnow_source_endpoints(self.settings.newsnow_base_url, source_id):
@@ -907,6 +1129,18 @@ class AutoDataProvider:
     def fetch_google_news_archive(self, query: str) -> list[ContentItemInput]:
         primary_fetcher = getattr(self.primary, "fetch_google_news_archive", None)
         fallback_fetcher = getattr(self.fallback, "fetch_google_news_archive", None)
+
+        if not callable(primary_fetcher):
+            return fallback_fetcher(query) if callable(fallback_fetcher) else []
+
+        try:
+            return primary_fetcher(query)
+        except ProviderError:
+            return fallback_fetcher(query) if callable(fallback_fetcher) else []
+
+    def fetch_direct_rss_archive(self, query: str) -> list[ContentItemInput]:
+        primary_fetcher = getattr(self.primary, "fetch_direct_rss_archive", None)
+        fallback_fetcher = getattr(self.fallback, "fetch_direct_rss_archive", None)
 
         if not callable(primary_fetcher):
             return fallback_fetcher(query) if callable(fallback_fetcher) else []

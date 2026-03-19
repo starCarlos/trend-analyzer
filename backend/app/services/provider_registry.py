@@ -14,7 +14,14 @@ ONLINE_PROVIDER_SPECS = (
     OnlineProviderSpec(source="github", label="GitHub", smoke_blocking=True),
     OnlineProviderSpec(source="newsnow", label="NewsNow", smoke_blocking=True),
     OnlineProviderSpec(source="google_news", label="Google News"),
+    OnlineProviderSpec(source="direct_rss", label="Direct RSS"),
     OnlineProviderSpec(source="gdelt", label="GDELT"),
+)
+
+ARCHIVE_PROVIDER_FETCHERS = (
+    ("google_news", "fetch_google_news_archive"),
+    ("direct_rss", "fetch_direct_rss_archive"),
+    ("gdelt", "fetch_gdelt_archive"),
 )
 
 ONLINE_PROVIDER_SOURCES = tuple(spec.source for spec in ONLINE_PROVIDER_SPECS)

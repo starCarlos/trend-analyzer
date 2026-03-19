@@ -30,6 +30,7 @@ from app.schemas import (
 )
 from app.services.backfill import run_backfill_job
 from app.services.collector import collect_tracked_keywords, ensure_tracked, list_tracked_keywords, refresh_keyword
+from app.services.direct_rss_catalog import iter_direct_rss_feeds
 from app.services.management import list_collect_runs, list_keywords
 from app.services.provider_diagnostics import get_provider_status
 from app.services.provider_smoke import run_provider_smoke
@@ -110,8 +111,21 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(payload.github.status, "mock_only")
         self.assertEqual(payload.newsnow.status, "mock_only")
         self.assertEqual(payload.google_news.status, "mock_only")
+        self.assertEqual(payload.direct_rss.status, "mock_only")
         self.assertEqual(payload.gdelt.status, "mock_only")
         self.assertIn("mock", payload.summary)
+
+    def test_direct_rss_catalog_appends_extra_feeds(self) -> None:
+        feeds = iter_direct_rss_feeds("Custom Feed|https://example.com/custom.xml")
+
+        self.assertTrue(any(feed.label == "Custom Feed" for feed in feeds))
+        self.assertTrue(any(feed.url == "https://example.com/custom.xml" for feed in feeds))
+
+    def test_direct_rss_feed_order_prefers_zh_sources_for_cjk_queries(self) -> None:
+        ordered = RealDataProvider._direct_rss_feed_order("开源代理", "")
+
+        self.assertGreater(len(ordered), 0)
+        self.assertEqual(ordered[0].language, "zh")
 
     def test_provider_status_route_returns_payload(self) -> None:
         expected = ProviderStatusPayload(
@@ -701,6 +715,65 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].url, "https://example.com/openclaw-launch-1")
 
+    def test_real_provider_fetch_direct_rss_archive_parses_rss_and_atom_feeds(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                direct_rss_enabled=True,
+                direct_rss_max_items=10,
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        payloads = {
+            "https://36kr.com/feed": """
+            <rss version="2.0">
+              <channel>
+                <item>
+                  <title>OpenClaw 推出企业功能</title>
+                  <link>https://36kr.com/p/1</link>
+                  <pubDate>2026-03-18 10:30:00 +0800</pubDate>
+                  <description><![CDATA[OpenClaw 企业版开始灰度。]]></description>
+                  <author>36Kr</author>
+                </item>
+                <item>
+                  <title>Completely unrelated result</title>
+                  <link>https://36kr.com/p/2</link>
+                  <pubDate>2026-03-18 09:30:00 +0800</pubDate>
+                  <description><![CDATA[Unrelated.]]></description>
+                  <author>36Kr</author>
+                </item>
+              </channel>
+            </rss>
+            """,
+            "https://www.theverge.com/rss/index.xml": """
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <entry>
+                <title>OpenClaw ships a new desktop workflow</title>
+                <link href="https://www.theverge.com/openclaw" rel="alternate" />
+                <updated>2026-03-18T02:15:00+00:00</updated>
+                <summary>OpenClaw adds automation controls.</summary>
+                <author><name>The Verge</name></author>
+              </entry>
+            </feed>
+            """,
+        }
+
+        def fake_request_text(url: str, headers: dict[str, str]) -> str:
+            del headers
+            if url in payloads:
+                return payloads[url]
+            raise ProviderError(f"blocked in test: {url}")
+
+        with patch.object(provider, "_request_text", side_effect=fake_request_text):
+            items = provider.fetch_direct_rss_archive("openclaw")
+
+        self.assertEqual(len(items), 2)
+        self.assertEqual({item.source for item in items}, {"direct_rss"})
+        self.assertEqual(items[0].title, "OpenClaw 推出企业功能")
+        self.assertEqual(items[1].author, "The Verge")
+        self.assertTrue(all(item.published_at is not None for item in items))
+
     def test_provider_smoke_skips_search_when_probe_fails(self) -> None:
         smoke = run_provider_smoke(
             query="anthropic/claude-code",
@@ -1227,6 +1300,75 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIsNone(payload.backfill_job)
         self.assertEqual(payload.availability["newsnow_snapshot"], "not_applicable")
         self.assertEqual(payload.availability["google_news_archive"], "ready")
+
+    def test_keyword_search_prefetches_direct_rss_inline_on_first_lookup(self) -> None:
+        query = f"rss-inline-{uuid4().hex[:8]}"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        class InlineDirectRssProvider:
+            name = "inline-rss"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                raise AssertionError(f"unexpected inline news snapshot request for {keyword_query}")
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                return []
+
+            def fetch_direct_rss_archive(self, keyword_query: str):
+                self_query = keyword_query
+                return [
+                    ContentItemInput(
+                        source="direct_rss",
+                        source_type="archive",
+                        external_key=f"{self_query}:rss:1",
+                        title=f"{self_query} rss item 1",
+                        url="https://example.com/rss/1",
+                        summary="rss-1",
+                        author="publisher",
+                        published_at=today - timedelta(days=2),
+                        meta_json="{}",
+                    ),
+                    ContentItemInput(
+                        source="direct_rss",
+                        source_type="archive",
+                        external_key=f"{self_query}:rss:2",
+                        title=f"{self_query} rss item 2",
+                        url="https://example.com/rss/2",
+                        summary="rss-2",
+                        author="publisher",
+                        published_at=today - timedelta(days=1),
+                        meta_json="{}",
+                    ),
+                ]
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                return []
+
+        with patch("app.services.search.get_data_provider", return_value=InlineDirectRssProvider()):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        history_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in history_series.points], [1.0, 1.0])
+        self.assertTrue(any(item.source == "direct_rss" for item in payload.content_items))
+        self.assertEqual(payload.availability["direct_rss_archive"], "ready")
+        self.assertIsNone(payload.backfill_job)
 
     def test_keyword_search_prefetches_gdelt_inline_on_first_lookup(self) -> None:
         query = f"gdelt-inline-{uuid4().hex[:8]}"

@@ -30,13 +30,14 @@ from app.services.backfill import (
     run_backfill_job,
 )
 from app.services.providers import RealDataProvider, get_data_provider
+from app.services.provider_registry import ARCHIVE_PROVIDER_FETCHERS
 from app.services.provider_types import TrendPointInput
 from app.services.query_parser import SearchTarget, resolve_search_query
 
 
 ALLOWED_PERIODS = {"7d": 7, "30d": 30, "90d": 90, "all": None}
-ALLOWED_CONTENT_SOURCES = {"all", "github", "newsnow", "google_news", "gdelt"}
-ARCHIVE_CONTENT_SOURCES = ("google_news", "gdelt")
+ALLOWED_CONTENT_SOURCES = {"all", "github", "newsnow", "google_news", "direct_rss", "gdelt"}
+ARCHIVE_CONTENT_SOURCES = ("google_news", "direct_rss", "gdelt")
 CONTENT_REFRESH_WINDOW = timedelta(minutes=30)
 
 
@@ -48,7 +49,10 @@ def parse_period(period: str) -> int | None:
 
 def parse_content_source(content_source: str) -> str | None:
     if content_source not in ALLOWED_CONTENT_SOURCES:
-        raise HTTPException(status_code=400, detail="content_source must be one of all, github, newsnow, google_news, gdelt")
+        raise HTTPException(
+            status_code=400,
+            detail="content_source must be one of all, github, newsnow, google_news, direct_rss, gdelt",
+        )
     return None if content_source == "all" else content_source
 
 
@@ -262,7 +266,7 @@ def _prefetch_content_history_inline(db: Session, keyword: Keyword) -> bool:
         return True
 
     provider = get_data_provider()
-    for source, fetcher_name in (("google_news", "fetch_google_news_archive"), ("gdelt", "fetch_gdelt_archive")):
+    for source, fetcher_name in ARCHIVE_PROVIDER_FETCHERS:
         if _has_fresh_content_items(db, keyword.id, source):
             continue
         archive_fetcher = getattr(provider, fetcher_name, None)
@@ -610,6 +614,7 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         "github_history": "missing",
         "newsnow_snapshot": "missing",
         "google_news_archive": "missing",
+        "direct_rss_archive": "missing",
         "gdelt_archive": "missing",
     }
 
@@ -621,6 +626,10 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         availability["google_news_archive"] = "ready"
     elif any(item.source == "google_news" for item in contents):
         availability["google_news_archive"] = "ready"
+    if any(point.source == "direct_rss" and point.metric == "matched_item_count" for point in points):
+        availability["direct_rss_archive"] = "ready"
+    elif any(item.source == "direct_rss" for item in contents):
+        availability["direct_rss_archive"] = "ready"
     if any(point.source == "gdelt" and point.metric == "matched_item_count" for point in points):
         availability["gdelt_archive"] = "ready"
     elif any(item.source == "gdelt" for item in contents):
@@ -645,6 +654,8 @@ def _availability(keyword: Keyword, job: BackfillJob | None, points: list[TrendP
         availability["newsnow_snapshot"] = "not_applicable"
     if keyword.kind not in {"keyword", "github_repo"} and availability["google_news_archive"] == "missing":
         availability["google_news_archive"] = "not_applicable"
+    if keyword.kind not in {"keyword", "github_repo"} and availability["direct_rss_archive"] == "missing":
+        availability["direct_rss_archive"] = "not_applicable"
     if keyword.kind not in {"keyword", "github_repo"} and availability["gdelt_archive"] == "missing":
         availability["gdelt_archive"] = "not_applicable"
 

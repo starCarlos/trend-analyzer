@@ -267,6 +267,7 @@
         newsnow: "NewsNow",
         github: "GitHub",
         google_news: "Google News",
+        direct_rss: "媒体 RSS",
         gdelt: "GDELT",
       },
       snapshot: {
@@ -318,7 +319,14 @@
         points: "{count} 个点位",
         date_separator: " - ",
       },
-      source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", gdelt: "GDELT", keyword_history: "历史新闻" },
+      source: {
+        github: "GitHub",
+        newsnow: "NewsNow",
+        google_news: "Google News",
+        direct_rss: "媒体 RSS",
+        gdelt: "GDELT",
+        keyword_history: "历史新闻",
+      },
       task_type: { history: "历史", content: "内容", snapshot: "快照" },
       source_type: {
         github_repo: "GitHub 仓库",
@@ -341,6 +349,7 @@
         github_content: "GitHub 内容",
         newsnow_snapshot: "NewsNow 快照",
         google_news_archive: "Google News 历史",
+        direct_rss_archive: "RSS 历史",
         gdelt_archive: "GDELT 历史",
       },
       status_value: {
@@ -623,6 +632,7 @@
         newsnow: "NewsNow",
         github: "GitHub",
         google_news: "Google News",
+        direct_rss: "Publisher RSS",
         gdelt: "GDELT",
       },
       snapshot: {
@@ -674,7 +684,14 @@
         points: "{count} points",
         date_separator: " - ",
       },
-      source: { github: "GitHub", newsnow: "NewsNow", google_news: "Google News", gdelt: "GDELT", keyword_history: "News history" },
+      source: {
+        github: "GitHub",
+        newsnow: "NewsNow",
+        google_news: "Google News",
+        direct_rss: "Publisher RSS",
+        gdelt: "GDELT",
+        keyword_history: "News history",
+      },
       task_type: { history: "history", content: "content", snapshot: "snapshot" },
       source_type: {
         github_repo: "GitHub repo",
@@ -697,6 +714,7 @@
         github_content: "GitHub content",
         newsnow_snapshot: "NewsNow snapshot",
         google_news_archive: "Google News archive",
+        direct_rss_archive: "RSS archive",
         gdelt_archive: "GDELT archive",
       },
       status_value: {

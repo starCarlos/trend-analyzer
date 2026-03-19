@@ -2046,16 +2046,8 @@ body[data-view="tracked"] .ops-guide-grid {
 }
 
 .sparkline-node:hover .sparkline-guide,
-.sparkline-node:hover .sparkline-halo,
 .sparkline-node:hover .sparkline-popover {
   opacity: 1;
-}
-
-.sparkline-node:hover .sparkline-dot {
-  opacity: 1;
-  fill: #ffffff;
-  stroke: rgba(255, 196, 96, 0.96);
-  transform: scale(1.16);
 }
 
 .sparkline-axis {
