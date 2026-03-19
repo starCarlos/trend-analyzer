@@ -1,34 +1,34 @@
 # TrendScope
 
-English | [简体中文](./README.zh-CN.md)
+[English](./README.md) | 简体中文
 
-TrendScope is a local-first trend analysis app built around a FastAPI backend that serves both the API and the default web UI directly.
+TrendScope 是一个本地优先的趋势分析应用，核心运行路径是 FastAPI 后端直接提供 API 和默认网页界面。
 
-The current product path is `backend/`. The `frontend/` directory is a legacy Next.js prototype kept only for reference.
+当前主产品路径是 `backend/`。`frontend/` 目录只是保留的历史 Next.js 原型，不是当前运行入口。
 
-## Current Status
+## 当前状态
 
-- Primary runtime: `FastAPI + SQLite + built-in static web UI`
-- Default local URL: `http://127.0.0.1:5081`
-- Default provider mode: `mock`
-- Core real providers: `GitHub` and `NewsNow`
-- Optional archive/history providers: `Google News`, `Direct RSS`, and `GDELT`
-- Real-provider validation is available from `CLI`, `/tracked`, and acceptance scripts
+- 主运行形态：`FastAPI + SQLite + 内置静态 Web UI`
+- 默认本地地址：`http://127.0.0.1:5081`
+- 默认 provider 模式：`mock`
+- 核心真实源：`GitHub` 和 `NewsNow`
+- 可选补充历史源：`Google News`、`Direct RSS`、`GDELT`
+- 真实源验证可通过 `CLI`、`/tracked` 页面和验收脚本执行
 
-## What Works Today
+## 当前已实现
 
-- Search GitHub URLs, `owner/repo`, plain keywords, and bare repo names that resolve cleanly
-- Expand plain-keyword searches across Chinese and English variants, then merge and dedupe results
-- Return partial results immediately and backfill missing history/content asynchronously
-- Show trend lines, daily snapshot cards, availability states, and content items
-- Track and untrack queries from the search page
-- Manage tracked items on `/tracked`
-- Run provider preflight, `Verify real`, `Run smoke`, scheduler checks, and manual collection from `/tracked`
-- Execute local acceptance and real-provider acceptance, including isolated scheduler and failure-readability probes
+- 支持搜索 GitHub URL、`owner/repo`、普通关键词，以及能稳定解析的裸仓库名
+- 普通关键词会同时尝试中英文变体搜索，再合并去重
+- 首包先返回部分结果，缺失的历史和内容异步回填
+- 展示趋势线、今日快照卡片、数据可用性状态和内容列表
+- 可在搜索页执行 Track/Untrack
+- 可在 `/tracked` 页面管理追踪项
+- 可在 `/tracked` 页面执行 provider 预检、`Verify real`、`Run smoke`、scheduler 检查和手动采集
+- 支持本地验收和真实 provider 验收，包括隔离的 scheduler probe 和 failure readability probe
 
-## Quick Start
+## 快速开始
 
-### Recommended Local Run
+### 推荐本地启动
 
 ```bash
 cd backend
@@ -37,69 +37,69 @@ uv sync
 PORT=5081 RELOAD=1 uv run python run_server.py
 ```
 
-Open these URLs after startup:
+启动后可访问：
 
-- Search page: `http://127.0.0.1:5081/`
-- Tracked page: `http://127.0.0.1:5081/tracked`
-- Health check: `http://127.0.0.1:5081/api/health`
+- 搜索页：`http://127.0.0.1:5081/`
+- 追踪页：`http://127.0.0.1:5081/tracked`
+- 健康检查：`http://127.0.0.1:5081/api/health`
 
-### Docker Run
+### Docker 启动
 
 ```bash
 docker compose up --build
 ```
 
-The compose file also exposes the app on `http://127.0.0.1:5081`.
+`docker-compose.yml` 也会把应用暴露在 `http://127.0.0.1:5081`。
 
-### Alternative Start
+### 替代启动方式
 
 ```bash
 cd backend
 uv run uvicorn app.main:app --host 127.0.0.1 --port 5081 --reload
 ```
 
-## Provider Modes
+## Provider 模式
 
 - `PROVIDER_MODE=mock`
-  - Fully offline
-  - Deterministic data for local development and tests
+  - 完全离线
+  - 适合本地开发和测试的确定性假数据
 - `PROVIDER_MODE=real`
-  - Use real upstreams directly
-  - Expose upstream failures instead of falling back
+  - 直接使用真实上游
+  - 不回退，直接暴露真实错误
 - `PROVIDER_MODE=auto`
-  - Prefer real upstreams
-  - Fall back to mock when a real request fails
+  - 优先走真实上游
+  - 真实请求失败时回退到 mock
 
-Ready-made env templates:
+现成的环境模板：
 
 - [`backend/.env.example`](./backend/.env.example)
 - [`backend/.env.auto.example`](./backend/.env.auto.example)
 - [`backend/.env.real.example`](./backend/.env.real.example)
 
-Provider runtime guide:
+运行说明：
 
 - [`docs/provider-runtime.md`](./docs/provider-runtime.md)
 
-## Real-Provider Coverage
+## 真实源覆盖范围
 
-### Core Providers
+### 核心 Provider
 
 - `GitHub`
-  - repository history
-  - repository content
+  - repository 历史
+  - repository 内容流
 - `NewsNow`
-  - daily snapshot
-  - content stream
+  - 每日快照
+  - 内容流
 
-### Optional Archive and History Providers
+### 可选补充历史源
 
 - `Google News`
 - `Direct RSS`
 - `GDELT`
 
-These optional providers enrich keyword history and content completeness, but the default real-search blocking path still centers on `GitHub` and `NewsNow`.
+这些补充源主要用于增强关键词历史与内容完整性；默认真实搜索阻塞链路仍以 `GitHub` 和 `NewsNow` 为核心。
 
-### Useful Runtime Knobs
+### 常用运行配置
 
 - `NEWSNOW_SOURCE_IDS`
 - `GOOGLE_NEWS_ENABLED`
@@ -109,7 +109,7 @@ These optional providers enrich keyword history and content completeness, but th
 - `REQUEST_TIMEOUT_SECONDS`
 - `HTTP_PROXY`
 
-`ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON` lets you constrain ambiguous keywords with extra context. Example:
+`ARCHIVE_AMBIGUOUS_QUERY_CONTEXTS_JSON` 可用于给歧义词增加上下文约束，例如：
 
 ```json
 {
@@ -118,9 +118,9 @@ These optional providers enrich keyword history and content completeness, but th
 }
 ```
 
-## Useful Commands
+## 常用命令
 
-### Tests
+### 测试
 
 ```bash
 cd backend
@@ -142,7 +142,7 @@ uv run python -m app.cli provider-smoke openai/openai-python --period 30d --prob
 uv run python -m app.cli collect-tracked --period 30d
 ```
 
-### API Examples
+### API 示例
 
 ```bash
 curl 'http://127.0.0.1:5081/api/health'
@@ -153,7 +153,7 @@ curl 'http://127.0.0.1:5081/api/collect/status'
 curl 'http://127.0.0.1:5081/api/collect/logs?limit=20'
 ```
 
-`content_source` currently supports:
+当前 `content_source` 支持：
 
 - `all`
 - `github`
@@ -162,9 +162,9 @@ curl 'http://127.0.0.1:5081/api/collect/logs?limit=20'
 - `direct_rss`
 - `gdelt`
 
-## Acceptance Workflows
+## 验收流程
 
-### Local Acceptance
+### 本地验收
 
 ```bash
 backend/.venv/bin/python scripts/local_acceptance.py --skip-ui
@@ -173,23 +173,23 @@ backend/.venv/bin/python scripts/local_acceptance.py --ui-python /path/to/python
 backend/.venv/bin/python scripts/local_acceptance.py --skip-ui --json
 ```
 
-This script can:
+该脚本可以：
 
-- run backend unit tests
-- check or auto-start the FastAPI server
-- execute UI smoke checks
-- emit machine-readable JSON output
+- 运行后端单测
+- 检查或自动拉起 FastAPI 服务
+- 执行 UI smoke 检查
+- 输出机器可读 JSON 结果
 
-### Real-Provider Acceptance
+### 真实 Provider 验收
 
-One-command workflow:
+一键流程：
 
 ```bash
 backend/.venv/bin/python scripts/run_real_provider_acceptance.py --mode auto
 backend/.venv/bin/python scripts/run_real_provider_acceptance.py --mode auto --run-ui --ui-python /path/to/python-with-playwright
 ```
 
-Manual record workflow:
+手动记录流程：
 
 ```bash
 backend/.venv/bin/python scripts/init_real_provider_acceptance_record.py --mode auto
@@ -197,29 +197,29 @@ backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mod
 backend/.venv/bin/python scripts/update_real_provider_acceptance_record.py --mode auto --run-ui --ui-python /path/to/python-with-playwright
 ```
 
-In `real` mode, the record updater now also runs isolated temporary probes to verify:
+在 `real` 模式下，验收记录更新脚本还会额外运行隔离临时 probe，自动验证：
 
-- empty-database startup
-- scheduler-driven tracked collection
-- readable failure states for `search`, `backfill`, and `collect`
+- 空库启动
+- scheduler 驱动的 tracked 采集
+- `search`、`backfill`、`collect` 的可读失败态
 
-Related docs:
+相关文档：
 
 - [`docs/local-acceptance.md`](./docs/local-acceptance.md)
 - [`docs/real-provider-acceptance.md`](./docs/real-provider-acceptance.md)
 - [`docs/real-provider-acceptance-record-template.md`](./docs/real-provider-acceptance-record-template.md)
 - [`docs/acceptance-records/`](./docs/acceptance-records)
 
-## Repository Layout
+## 仓库结构
 
 ```text
-backend/   FastAPI app, SQLite models, provider workflows, CLI, and static web UI
-frontend/  legacy Next.js prototype kept for reference
-docs/      product, technical, runtime, and acceptance documentation
-scripts/   local acceptance, real-provider acceptance, and smoke helpers
+backend/   FastAPI 应用、SQLite 模型、provider 流程、CLI 和静态 Web UI
+frontend/  仅保留作参考的历史 Next.js 原型
+docs/      产品、技术、运行和验收文档
+scripts/   本地验收、真实源验收和 smoke 辅助脚本
 ```
 
-## Key Docs
+## 关键文档
 
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 - [`docs/README.md`](./docs/README.md)
@@ -228,7 +228,7 @@ scripts/   local acceptance, real-provider acceptance, and smoke helpers
 - [`docs/current-functional-flow.md`](./docs/current-functional-flow.md)
 - [`docs/mvp-completion-checklist.md`](./docs/mvp-completion-checklist.md)
 
-## API Surface
+## API 一览
 
 - `GET /api/health`
 - `GET /api/search?q=<query>&period=<7d|30d|90d|all>&content_source=<...>`
@@ -244,15 +244,13 @@ scripts/   local acceptance, real-provider acceptance, and smoke helpers
 - `POST /api/provider-verify`
 - `POST /api/provider-smoke`
 
-## License
+## 许可证
 
-The repository code is licensed under [`Apache-2.0`](./LICENSE).
+仓库代码采用 [`Apache-2.0`](./LICENSE) 许可证。
 
-That license covers this repository's code and bundled documentation. It does not
-change the terms of third-party data sources or trademarks such as GitHub,
-NewsNow, Google News, Direct RSS feeds, or GDELT.
+这个许可证覆盖本仓库中的代码和随仓库分发的文档；它不会改变 GitHub、NewsNow、Google News、Direct RSS 或 GDELT 等第三方数据源和商标本身的使用条款。
 
-## Notes
+## 备注
 
-- Current priority is the Python backend path first.
-- If you only need the working product path, start from `backend/`, not `frontend/`.
+- 当前仍以 Python 后端路径为第一优先级。
+- 如果你只想跑当前可用产品路径，请从 `backend/` 开始，而不是 `frontend/`。
