@@ -106,15 +106,15 @@
       },
       tracked: {
         title: "追踪列表",
-        subtitle: "点卡片直接回到趋势页；这里只保留你会反复打开的对象。",
+        subtitle: "点标题回到趋势页；这里只留值得反复回看的对象。",
         dashboard_kicker: "观察台",
         dashboard_chip: "长期回看",
         dashboard_title: "追踪台",
-        dashboard_active: "当前盯着 {count} 个对象，其中 {repos} 个仓库、{keywords} 个关键词。最近变动 {latest}。",
-        dashboard_empty: "还没有追踪对象。先去搜索页，把值得反复查看的仓库或关键词留下来。",
+        dashboard_active: "共 {count} 个对象：{repos} 个仓库，{keywords} 个关键词。最近更新 {latest}。",
+        dashboard_empty: "还没有追踪对象。先去搜索页留下想反复回看的仓库或关键词。",
         guide_kicker: "怎么用",
         guide_title: "把常看的对象留在这里",
-        guide_body: "列表只做回看和跳转，运维工具默认收起。排查采集或来源时，再往下展开高级区。",
+        guide_body: "这里只做回看。排查采集或来源时，再展开下面工具。",
         stat_total: "正在追踪",
         stat_total_detail: "观察列表中的对象总数",
         stat_repo: "仓库类",
@@ -473,15 +473,15 @@
       },
       tracked: {
         title: "Tracked watchlist",
-        subtitle: "Open any card to jump back into the trend page. Keep only things worth revisiting here.",
+        subtitle: "Open the title to jump back into the trend page. Keep only revisit-worthy items here.",
         dashboard_kicker: "Watch desk",
         dashboard_chip: "Revisit later",
         dashboard_title: "Tracked board",
-        dashboard_active: "Watching {count} items: {repos} repos and {keywords} keywords. Latest change {latest}.",
-        dashboard_empty: "Nothing is tracked yet. Go back to search and keep the repositories or keywords worth revisiting.",
+        dashboard_active: "Watching {count} items: {repos} repos and {keywords} keywords. Latest update {latest}.",
+        dashboard_empty: "Nothing is tracked yet. Go back to search and keep only what deserves revisiting.",
         guide_kicker: "Workflow",
         guide_title: "Keep only repeat-look items here",
-        guide_body: "This page is for revisiting and jumping back into trends. Advanced operator tools stay collapsed until you need them.",
+        guide_body: "This page is for revisiting. Open the tools below only when you need to debug collection or providers.",
         stat_total: "Tracked",
         stat_total_detail: "Total items in the watchlist",
         stat_repo: "Repos",
@@ -1890,6 +1890,12 @@
         const busy = state.trackedBusyIds.includes(item.id);
         const displayQuery = getTrackedQuery(item);
         const rawDiffers = item.raw_query && item.raw_query !== displayQuery;
+        const targetDiffers = item.target_ref && item.target_ref !== displayQuery;
+        const metaItems = [];
+        if (targetDiffers) {
+          metaItems.push(t("tracked.target", { value: item.target_ref }));
+        }
+        metaItems.push(t("tracked.first_seen", { value: formatDate(item.first_seen_at) }));
         return `
           <article class="tracked-item">
             <div class="tracked-item-top">
@@ -1900,13 +1906,11 @@
               <button class="tracked-jump" data-tracked-open-index="${index}" type="button">${displayQuery}</button>
               ${rawDiffers ? `<p class="tracked-item-subtitle">${t("tracked.input", { value: item.raw_query })}</p>` : ""}
               <div class="tracked-meta">
-                ${item.target_ref ? `<span>${t("tracked.target", { value: item.target_ref })}</span>` : ""}
-                <span>${t("tracked.first_seen", { value: formatDate(item.first_seen_at) })}</span>
+                ${metaItems.map((value) => `<span>${value}</span>`).join("")}
               </div>
             </div>
             <div class="tracked-item-actions">
-              <button class="button-primary tracked-open-button" data-tracked-open-index="${index}" type="button">${t("tracked.open")}</button>
-              <button class="button-ghost" data-tracked-id="${item.id}" type="button" ${busy ? "disabled" : ""}>
+              <button class="button-ghost tracked-untrack-button" data-tracked-id="${item.id}" type="button" ${busy ? "disabled" : ""}>
                 ${busy ? t("tracked.saving") : t("tracked.untrack")}
               </button>
             </div>

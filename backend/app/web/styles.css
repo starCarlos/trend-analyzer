@@ -802,22 +802,22 @@ body[data-result-state="ready"] .search-footnote {
 .tracked-side-panel {
   display: grid;
   align-content: start;
-  gap: 12px;
-  padding: 24px 24px 26px;
+  gap: 10px;
+  padding: 22px 22px 24px;
 }
 
 .tracked-side-title {
   display: block;
-  font-size: clamp(28px, 3vw, 36px);
-  line-height: 1.02;
+  font-size: clamp(24px, 2.8vw, 30px);
+  line-height: 1.06;
   letter-spacing: -0.03em;
 }
 
 .tracked-side-body {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 15px;
-  line-height: 1.75;
+  font-size: 14px;
+  line-height: 1.68;
 }
 
 .operations-stack {
@@ -1310,8 +1310,8 @@ body[data-result-state="ready"] .search-footnote {
 
 .tracked-item {
   display: grid;
-  gap: 14px;
-  padding: 18px 18px 18px 20px;
+  gap: 12px;
+  padding: 18px 18px 16px 20px;
 }
 
 .tracked-item-top {
@@ -1368,20 +1368,17 @@ body[data-result-state="ready"] .search-footnote {
 }
 
 .tracked-item-subtitle {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: var(--ink-soft);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .tracked-item-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.tracked-open-button {
-  min-width: 128px;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
 }
 
 .tracked-panel {
@@ -1422,6 +1419,32 @@ body[data-view="tracked"] .ops-tablist {
   padding: 6px 10px;
   border-radius: 999px;
   background: rgba(23, 18, 15, 0.05);
+}
+
+.tracked-meta {
+  gap: 6px 8px;
+  margin-top: 8px;
+}
+
+.tracked-meta span {
+  padding: 4px 8px;
+  background: rgba(23, 18, 15, 0.04);
+  font-size: 11px;
+}
+
+.tracked-untrack-button {
+  min-height: 36px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink-soft);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.tracked-untrack-button:hover {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
 }
 
 .inline-error,
