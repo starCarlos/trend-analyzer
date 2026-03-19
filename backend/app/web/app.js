@@ -149,15 +149,16 @@
         subtitle: "普通查看趋势时可忽略；只有在排查采集、数据源或定时任务时才需要展开。",
         open: "展开进阶工具",
         close: "收起进阶工具",
+        focus_note: "先选一个问题再展开面板：看调度器、查真实源，或者临时补抓。",
         scheduler_kicker: "调度器",
         scheduler_title: "看定时任务",
         scheduler_body: "确认后台轮询是否在跑，以及最近一轮有没有报错。",
         provider_kicker: "数据源",
         provider_title: "查真实源连通性",
-        provider_body: "排查 GitHub 和 NewsNow 是否可用，必要时做 smoke 搜索。",
+        provider_body: "先看 GitHub / NewsNow 主链路是否通，再决定要不要做 smoke。",
         collect_kicker: "手动触发",
         collect_title: "补抓数据",
-        collect_body: "对追踪列表或某个 query 立刻执行一次采集和回填。",
+        collect_body: "复用现有 provider 链路，立即补跑一轮，不必等 scheduler。",
         runs_kicker: "审计",
         runs_title: "看后台最近做了什么",
         runs_body: "快速判断数据没更新，到底是没跑、跑慢了，还是来源失败。",
@@ -188,7 +189,7 @@
       },
       provider: {
         preflight_title: "Provider 预检",
-        preflight_subtitle: "切到 real 或 auto 之前，先检查本地配置。",
+        preflight_subtitle: "优先检查当前实时主链路（GitHub / NewsNow）配置。",
         verify: "验证真实源",
         verifying: "验证中...",
         smoke_placeholder: "Smoke 查询，例如 openai/openai-python",
@@ -228,7 +229,7 @@
       },
       collect: {
         title: "手动采集",
-        subtitle: "触发追踪刷新，或对指定 query 运行一次性采集。",
+        subtitle: "复用现有 provider 链路，对追踪列表或指定 query 立刻补跑一轮。",
         query_placeholder: "可选：指定 query 做一次性 collect",
         backfill_now: "立即执行回填",
         tracked: "采集追踪列表",
@@ -515,15 +516,16 @@
         subtitle: "Ignore this area for normal reading. Open it only when you need to debug collection, providers, or scheduled jobs.",
         open: "Open advanced tools",
         close: "Hide advanced tools",
+        focus_note: "Pick one question first: scheduler, real providers, or a manual replay.",
         scheduler_kicker: "Scheduler",
         scheduler_title: "Check timed jobs",
         scheduler_body: "Confirm the background loop is running and whether the last iteration failed.",
         provider_kicker: "Providers",
         provider_title: "Probe real source connectivity",
-        provider_body: "Inspect GitHub and NewsNow availability, then run a smoke search if needed.",
+        provider_body: "Check the GitHub / NewsNow realtime path first, then decide whether a smoke run is needed.",
         collect_kicker: "Manual trigger",
         collect_title: "Force a collect run",
-        collect_body: "Run collection and backfill immediately for the watchlist or a single query.",
+        collect_body: "Replay the existing provider pipeline immediately instead of waiting for the scheduler.",
         runs_kicker: "Audit",
         runs_title: "See what the backend just did",
         runs_body: "Quickly tell whether stale data comes from no run, a slow run, or an upstream failure.",
@@ -554,7 +556,7 @@
       },
       provider: {
         preflight_title: "Provider preflight",
-        preflight_subtitle: "Local configuration check before you switch to real or auto provider mode.",
+        preflight_subtitle: "Check the current realtime path configuration first (GitHub / NewsNow).",
         verify: "Verify real",
         verifying: "Verifying...",
         smoke_placeholder: "Smoke query, e.g. openai/openai-python",
@@ -594,7 +596,7 @@
       },
       collect: {
         title: "Manual collect",
-        subtitle: "Trigger tracked refreshes or run a one-off collection for a specific query.",
+        subtitle: "Replay the current provider pipeline now for the watchlist or a specific query.",
         query_placeholder: "Optional query for one-off collect",
         backfill_now: "Run backfill now",
         tracked: "Collect tracked",
@@ -811,6 +813,7 @@
     providerSmokeQuery: DEFAULT_PROVIDER_SMOKE_QUERY,
     providerSmokePeriod: "30d",
     providerSmokeForceSearch: false,
+    operationsTab: "scheduler",
     collectBusy: false,
     collectError: null,
     collectFeedback: null,
@@ -864,6 +867,8 @@
     trackedError: document.getElementById("tracked-error"),
     operationsDisclosure: document.getElementById("operations-disclosure"),
     operationsShell: document.getElementById("operations-shell"),
+    operationsTabs: Array.from(document.querySelectorAll("[data-ops-tab]")),
+    operationsPanes: Array.from(document.querySelectorAll("[data-ops-pane]")),
     operationsRefreshButton: document.getElementById("operations-refresh-button"),
     schedulerError: document.getElementById("scheduler-error"),
     schedulerStats: document.getElementById("scheduler-stats"),
@@ -1920,6 +1925,16 @@
 
     elements.operationsDisclosure.classList.remove("hidden");
     elements.operationsShell.classList.toggle("hidden", state.view !== "tracked");
+    const activeTab = state.operationsTab === "provider" || state.operationsTab === "collect" ? state.operationsTab : "scheduler";
+    state.operationsTab = activeTab;
+    elements.operationsTabs.forEach(function (button) {
+      const isActive = button.dataset.opsTab === activeTab;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+    elements.operationsPanes.forEach(function (panel) {
+      panel.classList.toggle("hidden", panel.dataset.opsPane !== activeTab);
+    });
     const operationsLoading = state.schedulerLoading || state.providerLoading;
     const operationsBusy = operationsLoading || state.collectBusy || state.providerVerifyBusy || state.providerSmokeBusy;
     const shouldOpenOperations =
@@ -2428,6 +2443,7 @@
 
   async function triggerCollection(mode) {
     syncCollectStateFromControls();
+    state.operationsTab = "collect";
 
     if (mode === "query" && !state.collectQuery) {
       state.collectError = t("collect.query_required");
@@ -2466,6 +2482,7 @@
   }
 
   async function verifyProviders() {
+    state.operationsTab = "provider";
     state.providerVerifyBusy = true;
     state.providerError = null;
     state.providerVerifyFeedback = null;
@@ -2487,6 +2504,7 @@
 
   async function runProviderSmoke() {
     syncProviderSmokeStateFromControls();
+    state.operationsTab = "provider";
     if (!state.providerSmokeQuery) {
       state.providerSmokeQuery = elements.collectQueryInput.value.trim() || state.query || DEFAULT_PROVIDER_SMOKE_QUERY;
     }
@@ -2746,6 +2764,17 @@
 
   elements.operationsRefreshButton.addEventListener("click", function () {
     Promise.all([loadTrackedKeywords(), loadOperationsData()]);
+  });
+
+  elements.operationsTabs.forEach(function (button) {
+    button.addEventListener("click", function () {
+      const tab = button.dataset.opsTab;
+      if (!tab || tab === state.operationsTab) {
+        return;
+      }
+      state.operationsTab = tab;
+      render();
+    });
   });
 
   elements.providerVerifyButton.addEventListener("click", function () {

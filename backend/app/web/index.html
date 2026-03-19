@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/assets/styles.css?v=20260319-ui-refresh-10" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260319-ui-refresh-12" />
   </head>
   <body>
     <main class="page-shell">
@@ -201,32 +201,29 @@
           </span>
         </summary>
 
-        <div class="ops-guide-grid">
-          <article class="ops-guide-card">
-            <span class="ops-guide-kicker" data-i18n="ops.scheduler_kicker">调度器</span>
-            <strong data-i18n="ops.scheduler_title">看定时任务</strong>
-            <p data-i18n="ops.scheduler_body">确认后台轮询是否在跑，以及最近一轮有没有报错。</p>
-          </article>
-          <article class="ops-guide-card">
-            <span class="ops-guide-kicker" data-i18n="ops.provider_kicker">数据源</span>
-            <strong data-i18n="ops.provider_title">查真实源连通性</strong>
-            <p data-i18n="ops.provider_body">排查 GitHub 和 NewsNow 是否可用，必要时做 smoke 搜索。</p>
-          </article>
-          <article class="ops-guide-card">
-            <span class="ops-guide-kicker" data-i18n="ops.collect_kicker">手动触发</span>
-            <strong data-i18n="ops.collect_title">补抓数据</strong>
-            <p data-i18n="ops.collect_body">对追踪列表或某个 query 立刻执行一次采集和回填。</p>
-          </article>
-          <article class="ops-guide-card">
-            <span class="ops-guide-kicker" data-i18n="ops.runs_kicker">审计</span>
-            <strong data-i18n="ops.runs_title">看后台最近做了什么</strong>
-            <p data-i18n="ops.runs_body">快速判断数据没更新，到底是没跑、跑慢了，还是来源失败。</p>
-          </article>
+        <div class="ops-focus-strip">
+          <p class="ops-focus-note" data-i18n="ops.focus_note">先选一个问题再展开面板：看调度器、查真实源，或者临时补抓。</p>
+          <div class="ops-tablist" id="operations-tablist" role="tablist" aria-label="operations tools">
+            <button aria-selected="true" class="ops-tab is-active" data-ops-tab="scheduler" role="tab" type="button">
+              <span class="ops-guide-kicker" data-i18n="ops.scheduler_kicker">调度器</span>
+              <strong data-i18n="ops.scheduler_title">看定时任务</strong>
+              <p data-i18n="ops.scheduler_body">确认后台轮询是否在跑，以及最近一轮有没有报错。</p>
+            </button>
+            <button aria-selected="false" class="ops-tab" data-ops-tab="provider" role="tab" type="button">
+              <span class="ops-guide-kicker" data-i18n="ops.provider_kicker">数据源</span>
+              <strong data-i18n="ops.provider_title">查真实源连通性</strong>
+              <p data-i18n="ops.provider_body">先看 GitHub / NewsNow 主链路是否通，再决定要不要做 smoke。</p>
+            </button>
+            <button aria-selected="false" class="ops-tab" data-ops-tab="collect" role="tab" type="button">
+              <span class="ops-guide-kicker" data-i18n="ops.collect_kicker">手动触发</span>
+              <strong data-i18n="ops.collect_title">补抓数据</strong>
+              <p data-i18n="ops.collect_body">复用现有 provider 链路，立即补跑一轮，不必等 scheduler。</p>
+            </button>
+          </div>
         </div>
 
-        <section class="operations-grid ops-workbench hidden" id="operations-shell">
-        <div class="ops-column ops-column-left">
-          <section class="panel ops-panel ops-panel-scheduler">
+        <section class="operations-stack ops-workbench hidden" id="operations-shell">
+          <section class="panel ops-panel ops-panel-scheduler" data-ops-pane="scheduler" role="tabpanel">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title" data-i18n="scheduler.title">调度器控制</h2>
@@ -238,49 +235,11 @@
             <div class="ops-stats" id="scheduler-stats"></div>
           </section>
 
-          <section class="panel ops-panel ops-panel-collect">
-            <div class="panel-header">
-              <div>
-                <h2 class="panel-title" data-i18n="collect.title">手动采集</h2>
-                <p class="panel-subtitle" data-i18n="collect.subtitle">触发追踪刷新，或对指定 query 运行一次性采集。</p>
-              </div>
-            </div>
-            <div class="inline-error hidden" id="collect-error"></div>
-            <div class="collect-feedback hidden" id="collect-feedback"></div>
-            <form class="collect-form" id="collect-form">
-              <input
-                class="search-input"
-                data-i18n-placeholder="collect.query_placeholder"
-                id="collect-query-input"
-                placeholder="可选：指定 query 做一次性 collect"
-              />
-              <div class="collect-row">
-                <select class="period-select" id="collect-period-select">
-                  <option data-i18n="period.7d" value="7d">7 天</option>
-                  <option data-i18n="period.30d" value="30d" selected>30 天</option>
-                  <option data-i18n="period.90d" value="90d">90 天</option>
-                  <option data-i18n="period.all" value="all">全部</option>
-                </select>
-                <label class="toggle-row" for="collect-backfill-checkbox">
-                  <input id="collect-backfill-checkbox" type="checkbox" checked />
-                  <span data-i18n="collect.backfill_now">立即执行回填</span>
-                </label>
-              </div>
-              <div class="collect-actions">
-                <button class="button-primary" data-i18n="collect.tracked" id="collect-tracked-button" type="submit">采集追踪列表</button>
-                <button class="button-ghost" data-i18n="collect.query" id="collect-query-button" type="button">采集该查询</button>
-              </div>
-            </form>
-            <div class="collect-results" id="collect-results"></div>
-          </section>
-        </div>
-
-        <div class="ops-column ops-column-right">
-          <section class="panel ops-panel ops-panel-provider">
+          <section class="panel ops-panel ops-panel-provider hidden" data-ops-pane="provider" role="tabpanel">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title" data-i18n="provider.preflight_title">Provider 预检</h2>
-                <p class="panel-subtitle" data-i18n="provider.preflight_subtitle">切到 real 或 auto 之前，先检查本地配置。</p>
+                <p class="panel-subtitle" data-i18n="provider.preflight_subtitle">优先检查当前实时主链路（GitHub / NewsNow）配置。</p>
               </div>
               <button class="button-ghost" data-i18n="provider.verify" id="provider-verify-button" type="button">验证真实源</button>
             </div>
@@ -330,7 +289,41 @@
             </details>
           </section>
 
-        </div>
+          <section class="panel ops-panel ops-panel-collect hidden" data-ops-pane="collect" role="tabpanel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title" data-i18n="collect.title">手动采集</h2>
+                <p class="panel-subtitle" data-i18n="collect.subtitle">复用现有 provider 链路，对追踪列表或指定 query 立刻补跑一轮。</p>
+              </div>
+            </div>
+            <div class="inline-error hidden" id="collect-error"></div>
+            <div class="collect-feedback hidden" id="collect-feedback"></div>
+            <form class="collect-form" id="collect-form">
+              <input
+                class="search-input"
+                data-i18n-placeholder="collect.query_placeholder"
+                id="collect-query-input"
+                placeholder="可选：指定 query 做一次性 collect"
+              />
+              <div class="collect-row">
+                <select class="period-select" id="collect-period-select">
+                  <option data-i18n="period.7d" value="7d">7 天</option>
+                  <option data-i18n="period.30d" value="30d" selected>30 天</option>
+                  <option data-i18n="period.90d" value="90d">90 天</option>
+                  <option data-i18n="period.all" value="all">全部</option>
+                </select>
+                <label class="toggle-row" for="collect-backfill-checkbox">
+                  <input id="collect-backfill-checkbox" type="checkbox" checked />
+                  <span data-i18n="collect.backfill_now">立即执行回填</span>
+                </label>
+              </div>
+              <div class="collect-actions">
+                <button class="button-primary" data-i18n="collect.tracked" id="collect-tracked-button" type="submit">采集追踪列表</button>
+                <button class="button-ghost" data-i18n="collect.query" id="collect-query-button" type="button">采集该查询</button>
+              </div>
+            </form>
+            <div class="collect-results" id="collect-results"></div>
+          </section>
         </section>
       </details>
 
@@ -440,6 +433,6 @@
       </section>
     </main>
 
-    <script src="/assets/app.js?v=20260319-ui-refresh-11"></script>
+    <script src="/assets/app.js?v=20260319-ui-refresh-12"></script>
   </body>
 </html>

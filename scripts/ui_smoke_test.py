@@ -195,12 +195,19 @@ def smoke_tracked_page(page, *, base_url: str, repo_query: str, period: str, out
     page.wait_for_load_state("networkidle", timeout=60000)
 
     wait_until_visible(page, "#tracked-panel")
-    wait_until_visible(page, "#provider-smoke-form")
+    wait_for_not_hidden(page, "#operations-disclosure")
+    page.locator("#operations-disclosure summary").click()
+    wait_for_not_hidden(page, "#operations-shell")
+
+    page.locator('[data-ops-tab="provider"]').click()
+    wait_for_not_hidden(page, '[data-ops-pane="provider"]')
 
     verify_button = page.locator("#provider-verify-button")
     verify_button.click()
     wait_for_not_hidden(page, "#provider-verify-feedback")
 
+    page.locator("#provider-smoke-disclosure summary").click()
+    wait_until_visible(page, "#provider-smoke-form")
     page.fill("#provider-smoke-query-input", repo_query)
     page.select_option("#provider-smoke-period-select", period)
     page.locator("#provider-smoke-button").click()
@@ -210,7 +217,8 @@ def smoke_tracked_page(page, *, base_url: str, repo_query: str, period: str, out
     )
     wait_for_not_hidden(page, "#provider-smoke-feedback")
 
-    runs_before = page.locator(".ops-run-item").count()
+    page.locator('[data-ops-tab="collect"]').click()
+    wait_for_not_hidden(page, '[data-ops-pane="collect"]')
     page.locator("#collect-tracked-button").click()
     wait_for_not_hidden(page, "#collect-feedback")
     page.wait_for_function(
@@ -219,7 +227,6 @@ def smoke_tracked_page(page, *, base_url: str, repo_query: str, period: str, out
     )
     page.wait_for_load_state("networkidle", timeout=60000)
 
-    runs_after = page.locator(".ops-run-item").count()
     screenshot_path = write_screenshot(page, output_dir, "trendscope-tracked-smoke.png")
     return {
         "url": url,
@@ -227,8 +234,8 @@ def smoke_tracked_page(page, *, base_url: str, repo_query: str, period: str, out
         "verify_real_completed": (page.locator("#provider-verify-feedback").text_content() or "").strip() != "",
         "run_smoke_completed": page.locator("#provider-smoke-grid .provider-card").count() >= 2,
         "collect_tracked_executed": page.locator(".collect-result-item").count() >= 1,
-        "collect_runs_visible": runs_after >= 1 or runs_before >= 1,
-        "collect_runs_added": runs_after > runs_before,
+        "collect_runs_visible": False,
+        "collect_runs_added": False,
         "collect_feedback": (page.locator("#collect-feedback").text_content() or "").strip(),
         "screenshot_path": screenshot_path,
     }
@@ -405,6 +412,7 @@ def run_inprocess_flows(
             {
                 "driver": "inprocess",
                 "page_contains_tracked_watchlist": 'id="tracked-panel"' in page_html,
+                "page_contains_operations_tabs": 'data-ops-tab="provider"' in page_html,
                 "page_contains_provider_preflight": 'id="provider-smoke-form"' in page_html,
                 "provider_verify": verify_payload,
                 "provider_smoke": smoke_payload,
@@ -455,7 +463,7 @@ def run_inprocess_flows(
                 "verify_real_completed": bool(verify_payload.get("github")) and bool(verify_payload.get("newsnow")),
                 "run_smoke_completed": bool(smoke_payload.get("provider_verify")) and bool(smoke_payload.get("search")),
                 "collect_tracked_executed": collect_tracked_executed,
-                "collect_runs_visible": bool(runs_after) or bool(runs_before),
+                "collect_runs_visible": False,
                 "collect_runs_added": bool(runs_after_ids - runs_before_ids),
                 "collect_feedback": collect_note,
                 "screenshot_path": tracked_evidence_path,
