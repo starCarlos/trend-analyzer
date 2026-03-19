@@ -43,6 +43,7 @@ from app.services.providers import get_data_provider
 from app.services.provider_registry import ARCHIVE_PROVIDER_FETCHERS
 from app.services.provider_types import TrendPointInput
 from app.services.query_parser import SearchTarget, resolve_search_query
+from app.services.query_variants import keyword_query_variants
 
 
 ALLOWED_PERIODS = {"7d": 7, "30d": 30, "90d": 90, "all": None}
@@ -200,7 +201,8 @@ def _archive_queries(keyword: Keyword) -> list[str]:
         queries.append(normalized)
 
     if keyword.kind == "keyword":
-        add(keyword.normalized_query)
+        for variant in keyword_query_variants(keyword.raw_query):
+            add(variant)
         return queries
 
     raw_query = keyword.raw_query.strip()

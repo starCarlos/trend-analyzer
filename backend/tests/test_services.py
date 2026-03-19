@@ -45,6 +45,7 @@ from app.services.github_repo_resolution import resolve_github_repo_name
 from app.services.providers import ProviderHttpError, RealDataProvider
 from app.services.provider_verification import verify_provider_connectivity
 from app.services.query_parser import parse_search_query, resolve_search_query
+from app.services.query_variants import keyword_query_variants
 from app.services.scheduler import CollectionScheduler
 from app.services.search import get_backfill_status, search_keyword, set_track_state
 
@@ -1154,6 +1155,14 @@ class ServiceTestCase(unittest.TestCase):
         self.assertEqual(target.normalized_query, "openclaw")
         self.assertIsNone(target.target_ref)
 
+    @patch("app.services.query_variants.translate_keyword_variant", return_value="oil")
+    def test_keyword_query_variants_adds_english_variant_for_cjk_query(self, _translate) -> None:
+        self.assertEqual(keyword_query_variants("石油"), ["石油", "oil"])
+
+    @patch("app.services.query_variants.translate_keyword_variant", return_value="")
+    def test_keyword_query_variants_falls_back_to_original_query(self, _translate) -> None:
+        self.assertEqual(keyword_query_variants("石油"), ["石油"])
+
     def test_github_repo_name_resolver_requires_unique_exact_match(self) -> None:
         settings = Settings(
             provider_mode="real",
@@ -1521,6 +1530,83 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIsNone(payload.backfill_job)
         self.assertEqual(payload.availability["newsnow_snapshot"], "not_applicable")
         self.assertEqual(payload.availability["google_news_archive"], "ready")
+
+    def test_keyword_search_prefetches_direct_rss_with_english_variant_for_cjk_query(self) -> None:
+        query = "石油"
+        today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        seen_queries: list[str] = []
+
+        class BilingualDirectRssProvider:
+            name = "bilingual-rss"
+
+            def fetch_github_history(self, target_ref: str):
+                raise AssertionError(f"unexpected github history request for {target_ref}")
+
+            def fetch_github_content(self, target_ref: str):
+                raise AssertionError(f"unexpected github content request for {target_ref}")
+
+            def fetch_newsnow_snapshot(self, keyword_query: str):
+                return ([], [])
+
+            def fetch_google_news_archive(self, keyword_query: str):
+                return []
+
+            def fetch_direct_rss_archive(self, keyword_query: str):
+                seen_queries.append(keyword_query)
+                if keyword_query != "oil":
+                    return []
+                return [
+                    ContentItemInput(
+                        source="direct_rss",
+                        source_type="archive",
+                        external_key="oil:rss:1",
+                        title="Oil market update",
+                        url="https://example.com/oil/1",
+                        summary="Oil prices moved higher.",
+                        author="publisher",
+                        published_at=today - timedelta(days=2),
+                        meta_json='{"query":"oil"}',
+                    ),
+                    ContentItemInput(
+                        source="direct_rss",
+                        source_type="archive",
+                        external_key="oil:rss:2",
+                        title="Oil supply outlook",
+                        url="https://example.com/oil/2",
+                        summary="Refiners are watching supply risks.",
+                        author="publisher",
+                        published_at=today - timedelta(days=1),
+                        meta_json='{"query":"oil"}',
+                    ),
+                ]
+
+            def fetch_gdelt_archive(self, keyword_query: str):
+                return []
+
+        with (
+            patch("app.services.search.get_data_provider", return_value=BilingualDirectRssProvider()),
+            patch("app.services.search.keyword_query_variants", return_value=["石油", "oil"]),
+        ):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query=query,
+                period="all",
+            )
+
+        history_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual(seen_queries, ["石油", "oil"])
+        self.assertEqual([point.value for point in history_series.points], [1.0, 1.0])
+        self.assertTrue(any(item.source == "direct_rss" for item in payload.content_items))
+        self.assertTrue(any(item.title == "Oil market update" for item in payload.content_items))
+        self.assertEqual(payload.availability["direct_rss_archive"], "ready")
+        self.assertIsNone(payload.backfill_job)
 
     def test_keyword_search_keeps_inline_history_when_later_archive_source_fails(self) -> None:
         query = f"inline-partial-{uuid4().hex[:8]}"
