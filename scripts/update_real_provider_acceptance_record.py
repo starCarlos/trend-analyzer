@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date
+from datetime import date, datetime
 import os
 import shlex
+import socket
 from pathlib import Path
 import subprocess
 import sys
+import time
+from urllib import request
 from urllib.parse import urlencode
 from uuid import uuid4
 
 from local_acceptance import (
+    build_local_probe_opener,
     build_parser as build_local_acceptance_parser,
     parse_base_url,
     stop_backend,
@@ -204,6 +208,12 @@ def yes_no(value: bool) -> str:
     return "是" if value else "否"
 
 
+def render_optional_yes_no(value: bool | None) -> str:
+    if value is None:
+        return "未自动验证"
+    return f"`{yes_no(value)}`"
+
+
 def iter_raw_provider_entries(payload: dict[str, object]) -> list[dict[str, object]]:
     providers = payload.get("providers")
     if isinstance(providers, list):
@@ -291,6 +301,88 @@ def start_backend_with_env(
     )
 
 
+def find_available_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return int(sock.getsockname()[1])
+
+
+def probe_json_request(
+    base_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, object] | None = None,
+    timeout_seconds: float = 2.0,
+) -> object:
+    url = f"{base_url.rstrip('/')}{path}"
+    headers = {"Accept": "application/json"}
+    body = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        body = json.dumps(payload).encode("utf-8")
+    req = request.Request(url, data=body, headers=headers, method=method)
+    opener = build_local_probe_opener(url)
+    try:
+        with opener.open(req, timeout=timeout_seconds) as response:
+            raw = response.read().decode("utf-8")
+    except Exception as exc:
+        raise RuntimeError(f"{method} {url} failed: {exc}") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{method} {url} returned invalid JSON: {exc}") from exc
+
+
+def ensure_probe_process_alive(process: subprocess.Popen[str] | None) -> None:
+    if process is not None and process.poll() is not None:
+        raise RuntimeError(f"Probe backend exited early with code {process.returncode}.")
+
+
+def wait_for_backfill_completion(
+    *,
+    base_url: str,
+    keyword_id: int,
+    timeout_seconds: float,
+    process: subprocess.Popen[str] | None,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    last_payload: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        ensure_probe_process_alive(process)
+        payload = probe_json_request(
+            base_url,
+            f"/api/keywords/{keyword_id}/backfill-status",
+            timeout_seconds=2.0,
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Backfill status probe did not return a JSON object.")
+        last_payload = payload
+        status = str(payload.get("status") or "")
+        if status in {"success", "failed", "partial"}:
+            return payload
+        time.sleep(0.5)
+    raise RuntimeError(
+        f"Backfill probe did not finish within {timeout_seconds:.0f}s: "
+        f"last_status={last_payload.get('status') or 'unknown'}"
+    )
+
+
+def has_readable_message(value: object) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    return text.casefold() not in {"none", "null", "unknown"}
+
+
+def normalize_scheduler_probe_query(query: str) -> str:
+    candidate = query.strip()
+    if "/" in candidate or candidate.startswith(("http://", "https://")):
+        return candidate
+    return "openai/openai-python"
+
+
 def validate_empty_startup(backend_python: str) -> tuple[str, str]:
     port = 18081
     base_url = f"http://127.0.0.1:{port}"
@@ -326,45 +418,289 @@ def validate_empty_startup(backend_python: str) -> tuple[str, str]:
         stop_backend(process)
 
 
-def validate_error_readability(backend_python: str) -> tuple[str, str]:
+def validate_scheduler_probe(
+    backend_python: str,
+    *,
+    query: str,
+    period: str,
+) -> dict[str, object]:
+    probe_query = normalize_scheduler_probe_query(query)
+    port = find_available_port()
+    base_url = f"http://127.0.0.1:{port}"
+    db_path = Path("/tmp") / f"trendscope-scheduler-probe-{uuid4().hex}.db"
     env_overrides = {
+        "DATABASE_URL": f"sqlite:///{db_path}",
+        "APP_ENV": "scheduler_probe",
         "PROVIDER_MODE": "real",
-        "GITHUB_TOKEN": "",
-        "GITHUB_API_BASE_URL": "",
-        "NEWSNOW_BASE_URL": "",
-        "NEWSNOW_SOURCE_IDS": "",
-        "REQUEST_TIMEOUT_SECONDS": "8",
+        "SCHEDULER_ENABLED": "1",
+        "SCHEDULER_INTERVAL_SECONDS": "5",
+        "SCHEDULER_INITIAL_DELAY_SECONDS": "1",
+        "SCHEDULER_PERIOD": period,
+        "SCHEDULER_RUN_BACKFILL_NOW": "1",
+    }
+    process: subprocess.Popen[str] | None = None
+    try:
+        process = start_backend_with_env(
+            base_url=base_url,
+            backend_python=backend_python,
+            env_overrides=env_overrides,
+        )
+        wait_for_health(
+            base_url=base_url,
+            timeout_seconds=20.0,
+            request_timeout=2.0,
+            process=process,
+        )
+
+        create_payload = probe_json_request(
+            base_url,
+            "/api/keywords",
+            method="POST",
+            payload={
+                "query": probe_query,
+                "track": True,
+                "period": period,
+                "run_backfill_now": False,
+            },
+            timeout_seconds=30.0,
+        )
+        if not isinstance(create_payload, dict):
+            raise RuntimeError("Scheduler seed request did not return a JSON object.")
+        keyword_payload = create_payload.get("keyword")
+        if not isinstance(keyword_payload, dict):
+            raise RuntimeError("Scheduler seed payload does not include keyword details.")
+        keyword_id = int(keyword_payload["id"])
+        initial_updated_at = str(keyword_payload.get("updated_at") or "")
+        baseline_logs = probe_json_request(base_url, "/api/collect/logs?limit=50")
+        if not isinstance(baseline_logs, list):
+            raise RuntimeError("Collect logs baseline did not return a JSON list.")
+        baseline_log_ids = {
+            int(item["id"])
+            for item in baseline_logs
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+
+        deadline = time.monotonic() + 90.0
+        last_status_payload: dict[str, object] = {}
+        latest_logs: list[dict[str, object]] = []
+        observed_update = False
+        while time.monotonic() < deadline:
+            ensure_probe_process_alive(process)
+            status_payload = probe_json_request(base_url, "/api/collect/status")
+            logs_payload = probe_json_request(base_url, "/api/collect/logs?limit=50")
+            keywords_payload = probe_json_request(base_url, "/api/keywords?tracked_only=true")
+            if not isinstance(status_payload, dict):
+                raise RuntimeError("Scheduler status probe did not return a JSON object.")
+            if not isinstance(logs_payload, list):
+                raise RuntimeError("Scheduler logs probe did not return a JSON list.")
+            if not isinstance(keywords_payload, list):
+                raise RuntimeError("Tracked keywords probe did not return a JSON list.")
+
+            last_status_payload = status_payload
+            latest_logs = [item for item in logs_payload if isinstance(item, dict)]
+            tracked_keyword = next(
+                (
+                    item
+                    for item in keywords_payload
+                    if isinstance(item, dict) and int(item.get("id") or 0) == keyword_id
+                ),
+                None,
+            )
+            current_updated_at = str((tracked_keyword or {}).get("updated_at") or "")
+            observed_update = observed_update or (
+                bool(initial_updated_at) and bool(current_updated_at) and current_updated_at != initial_updated_at
+            )
+            new_success_logs = [
+                item
+                for item in latest_logs
+                if int(item.get("id") or 0) not in baseline_log_ids
+                and int(item.get("keyword_id") or 0) == keyword_id
+                and str(item.get("status") or "") == "success"
+            ]
+            if (
+                int(status_payload.get("iteration_count") or 0) >= 1
+                and int(status_payload.get("last_triggered_count") or 0) >= 1
+                and str(status_payload.get("last_status") or "") == "success"
+                and bool(new_success_logs)
+                and observed_update
+            ):
+                section_note = (
+                    "另外补充使用临时 `scheduler_probe` 实例自动验证跨周期调度："
+                    f"`/api/collect/status` 返回 `iteration_count={status_payload.get('iteration_count')}`、"
+                    f"`last_triggered_count={status_payload.get('last_triggered_count')}`，"
+                    "`/api/collect/logs` 新增 success 记录，"
+                    f"tracked 条目 `{probe_query}` 的 `updated_at` 已更新。"
+                )
+                return {
+                    "result": "通过",
+                    "note": "已通过临时 `scheduler_probe` 实例自动验证：scheduler 跨周期运行成功，"
+                    f"`last_triggered_count={status_payload.get('last_triggered_count')}`，"
+                    "并新增 success `collect_runs` 记录。",
+                    "section_note": section_note,
+                    "scheduler_verified": True,
+                    "collect_runs_added": True,
+                    "observed_update": True,
+                }
+            time.sleep(1.0)
+
+        return {
+            "result": "失败",
+            "note": "临时 `scheduler_probe` 实例未在超时内满足跨周期调度成功条件。",
+            "section_note": (
+                "尝试使用临时 `scheduler_probe` 实例自动验证跨周期调度，但未在超时内观察到"
+                f"`iteration_count>=1`、新增 success `collect_runs` 与 `updated_at` 变化；"
+                f"last_status={last_status_payload.get('last_status') or 'unknown'}。"
+            ),
+            "scheduler_verified": False,
+            "collect_runs_added": any(
+                int(item.get("id") or 0) not in baseline_log_ids and str(item.get("status") or "") == "success"
+                for item in latest_logs
+            ),
+            "observed_update": observed_update,
+        }
+    except Exception as exc:
+        return {
+            "result": "失败",
+            "note": f"临时 `scheduler_probe` 实例执行失败：{summarize_exception(exc)}",
+            "section_note": f"尝试使用临时 `scheduler_probe` 实例自动验证跨周期调度失败：{summarize_exception(exc)}",
+            "scheduler_verified": False,
+            "collect_runs_added": False,
+            "observed_update": False,
+        }
+    finally:
+        stop_backend(process)
+
+
+def validate_error_readability(
+    backend_python: str,
+    *,
+    query: str,
+    period: str,
+) -> tuple[str, str]:
+    probe_query = normalize_scheduler_probe_query(query)
+    port = find_available_port()
+    base_url = f"http://127.0.0.1:{port}"
+    db_path = Path("/tmp") / f"trendscope-failure-probe-{uuid4().hex}.db"
+    env_overrides = {
+        "DATABASE_URL": f"sqlite:///{db_path}",
+        "APP_ENV": "failure_probe",
+        "PROVIDER_MODE": "real",
+        "GITHUB_API_BASE_URL": "http://127.0.0.1:9",
+        "NEWSNOW_BASE_URL": "http://127.0.0.1:9",
+        "REQUEST_TIMEOUT_SECONDS": "1",
         "HTTP_PROXY": "",
     }
+    process: subprocess.Popen[str] | None = None
     try:
-        _, status_payload = run_json_command_with_env(
-            [backend_python, "-m", "app.cli", "provider-status"],
+        process = start_backend_with_env(
+            base_url=base_url,
+            backend_python=backend_python,
             env_overrides=env_overrides,
         )
-        _, verify_payload = run_json_command_with_env(
-            [backend_python, "-m", "app.cli", "provider-verify", "--probe-mode", "real"],
-            env_overrides=env_overrides,
+        wait_for_health(
+            base_url=base_url,
+            timeout_seconds=20.0,
+            request_timeout=2.0,
+            process=process,
+        )
+
+        query_string = urlencode({"q": probe_query, "period": period})
+        initial_search = probe_json_request(base_url, f"/api/search?{query_string}", timeout_seconds=10.0)
+        if not isinstance(initial_search, dict):
+            raise RuntimeError("Failure probe search did not return a JSON object.")
+        keyword_payload = initial_search.get("keyword")
+        if not isinstance(keyword_payload, dict):
+            raise RuntimeError("Failure probe search did not return keyword details.")
+        keyword_id = int(keyword_payload["id"])
+        wait_for_backfill_completion(
+            base_url=base_url,
+            keyword_id=keyword_id,
+            timeout_seconds=30.0,
+            process=process,
+        )
+        search_payload = probe_json_request(base_url, f"/api/search?{query_string}", timeout_seconds=10.0)
+        if not isinstance(search_payload, dict):
+            raise RuntimeError("Failure probe refreshed search did not return a JSON object.")
+        backfill_job = search_payload.get("backfill_job")
+        if not isinstance(backfill_job, dict):
+            raise RuntimeError("Failure probe refreshed search did not include backfill_job.")
+        search_status = str(backfill_job.get("status") or "")
+        error_message = str(backfill_job.get("error_message") or "")
+        tasks = [
+            item
+            for item in backfill_job.get("tasks") or []
+            if isinstance(item, dict)
+        ]
+        readable_task_messages = all(has_readable_message(item.get("message")) for item in tasks if item.get("status") != "pending")
+
+        logs_before = probe_json_request(base_url, "/api/collect/logs?limit=50")
+        if not isinstance(logs_before, list):
+            raise RuntimeError("Failure probe collect logs baseline did not return a JSON list.")
+        baseline_log_ids = {
+            int(item["id"])
+            for item in logs_before
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        collect_payload = probe_json_request(
+            base_url,
+            "/api/collect/trigger",
+            method="POST",
+            payload={
+                "query": probe_query,
+                "tracked_only": False,
+                "period": period,
+                "run_backfill_now": True,
+            },
+            timeout_seconds=30.0,
+        )
+        if not isinstance(collect_payload, dict):
+            raise RuntimeError("Failure probe collect trigger did not return a JSON object.")
+        collect_results = collect_payload.get("results")
+        if not isinstance(collect_results, list) or not collect_results or not isinstance(collect_results[0], dict):
+            raise RuntimeError("Failure probe collect trigger did not return result items.")
+        collect_status = str(collect_results[0].get("status") or "")
+
+        logs_after = probe_json_request(base_url, "/api/collect/logs?limit=50")
+        if not isinstance(logs_after, list):
+            raise RuntimeError("Failure probe collect logs did not return a JSON list.")
+        new_logs = [
+            item
+            for item in logs_after
+            if isinstance(item, dict)
+            and int(item.get("id") or 0) not in baseline_log_ids
+            and int(item.get("keyword_id") or 0) == keyword_id
+        ]
+        readable_log = next(
+            (
+                item
+                for item in new_logs
+                if str(item.get("status") or "") in {"failed", "partial"}
+                and has_readable_message(item.get("message"))
+            ),
+            None,
+        )
+
+        search_ok = search_status in {"failed", "partial"} and has_readable_message(error_message) and readable_task_messages
+        collect_ok = collect_status in {"failed", "partial"} and readable_log is not None
+        if search_ok and collect_ok:
+            result = "通过" if search_status == "failed" and collect_status == "failed" else "部分通过"
+            note = (
+                "已通过临时 `failure_probe` 实例自动验证："
+                f"`search` 返回 `backfill_job.status={search_status}` 与 `error_message`，"
+                "task.message 和 `collect_logs.message` 都可读，"
+                f"`collect/trigger` 返回 `results[0].status={collect_status}`。"
+            )
+            return result, note
+
+        return "失败", (
+            "临时 `failure_probe` 实例未得到预期失败态；"
+            f"`search.status`={search_status or 'missing'}；"
+            f"`collect.status`={collect_status or 'missing'}。"
         )
     except Exception as exc:
-        return "失败", f"可读性验证执行失败：{summarize_exception(exc)}"
-
-    github_status = get_raw_provider_entry(status_payload, "github")
-    newsnow_status = get_raw_provider_entry(status_payload, "newsnow")
-    github_verify = get_raw_provider_entry(verify_payload, "github")
-    newsnow_verify = get_raw_provider_entry(verify_payload, "newsnow")
-
-    github_status_ok = github_status.get("status") == "misconfigured" and bool(github_status.get("issues"))
-    newsnow_status_ok = newsnow_status.get("status") == "misconfigured" and bool(newsnow_status.get("issues"))
-    github_verify_ok = github_verify.get("status") == "skipped" and "本地配置不完整" in str(
-        github_verify.get("message") or ""
-    )
-    newsnow_verify_ok = newsnow_verify.get("status") == "skipped" and "本地配置不完整" in str(
-        newsnow_verify.get("message") or ""
-    )
-
-    if github_status_ok and newsnow_status_ok and github_verify_ok and newsnow_verify_ok:
-        return "部分通过", "已自动验证 provider 配置缺失和在线探测跳过文案可读；search/backfill/collect 失败仍需人工构造。"
-    return "失败", "provider 配置缺失或在线探测跳过文案不符合预期。"
+        return "失败", f"临时 `failure_probe` 实例执行失败：{summarize_exception(exc)}"
+    finally:
+        stop_backend(process)
 
 
 def summarize_exception(exc: Exception) -> str:
@@ -453,7 +789,25 @@ def evaluate_keyword_ui(payload: dict[str, object] | None) -> tuple[str, str, bo
     return "通过", "普通关键词搜索页关键元素齐全。", True
 
 
-def evaluate_tracked_flow(payload: dict[str, object] | None) -> tuple[str, str]:
+def evaluate_tracked_flow(
+    payload: dict[str, object] | None,
+    *,
+    scheduler_probe: dict[str, object] | None = None,
+) -> tuple[str, str]:
+    if scheduler_probe is not None:
+        probe_result = str(scheduler_probe.get("result") or "")
+        probe_note = str(scheduler_probe.get("note") or "")
+        if probe_result == "通过":
+            return "通过", probe_note
+        if probe_result == "失败":
+            if payload is not None and payload.get("page_opened") and payload.get("collect_tracked_executed"):
+                if payload.get("collect_runs_added"):
+                    manual_note = "已自动验证 `Collect tracked`，collect runs 有新增。"
+                else:
+                    manual_note = "已自动触发 `Collect tracked`，但本次未观察到新增 collect runs。"
+                return "部分通过", join_notes([manual_note, probe_note])
+            return "失败", probe_note
+
     if payload is None:
         return "待人工确认", "未自动执行 `/tracked` 页面验收。"
     if not payload.get("page_opened"):
@@ -469,12 +823,68 @@ def evaluate_error_readability() -> tuple[str, str]:
     return "待人工确认", "当前脚本只覆盖成功路径，失败场景仍需人工构造并确认错误提示可读。"
 
 
+def update_collection_section(
+    content: str,
+    *,
+    tracked_payload: dict[str, object] | None,
+    scheduler_probe: dict[str, object] | None,
+    ui_error: str | None = None,
+) -> str:
+    heading = "## 8. 追踪与采集结果"
+    collect_tracked_verified: bool | None = None
+    scheduler_verified: bool | None = None
+    collect_runs_added: bool | None = None
+    observed_update: bool | None = None
+    remark_parts: list[str] = []
+
+    if tracked_payload is not None:
+        collect_tracked_verified = bool(tracked_payload.get("collect_tracked_executed"))
+        collect_runs_added = bool(tracked_payload.get("collect_runs_added"))
+        remark_parts.append(str(tracked_payload.get("collect_feedback") or ""))
+
+    if scheduler_probe is not None:
+        scheduler_verified = bool(scheduler_probe.get("scheduler_verified"))
+        observed_update = bool(scheduler_probe.get("observed_update"))
+        collect_runs_added = (collect_runs_added or False) or bool(scheduler_probe.get("collect_runs_added"))
+        remark_parts.append(str(scheduler_probe.get("section_note") or scheduler_probe.get("note") or ""))
+
+    if ui_error and tracked_payload is None:
+        remark_parts.append(f"自动页面验收失败：{ui_error}")
+
+    content = update_line_in_section(
+        content,
+        heading,
+        "是否验证 `Collect tracked`",
+        render_optional_yes_no(collect_tracked_verified),
+    )
+    content = update_line_in_section(
+        content,
+        heading,
+        "是否验证 scheduler",
+        render_optional_yes_no(scheduler_verified),
+    )
+    content = update_line_in_section(
+        content,
+        heading,
+        "collect runs 是否新增",
+        render_optional_yes_no(collect_runs_added),
+    )
+    content = update_line_in_section(
+        content,
+        heading,
+        "是否观察到新点位或更新时间变化",
+        render_optional_yes_no(observed_update),
+    )
+    return update_line_in_section(content, heading, "备注", join_notes(remark_parts))
+
+
 def update_prd_mapping_section(
     content: str,
     *,
     repo_payload: dict[str, object] | None,
     keyword_payload: dict[str, object] | None,
     tracked_payload: dict[str, object] | None,
+    scheduler_probe: dict[str, object] | None = None,
     smoke_ok: bool | None,
     startup_result: str = "待人工确认",
     startup_note: str = "当前脚本不会自动清空数据库，只能证明现有环境可启动。",
@@ -494,7 +904,7 @@ def update_prd_mapping_section(
     if ui_error and tracked_payload is None:
         tracked_result, tracked_note = "失败", f"页面验收执行失败：{ui_error}"
     else:
-        tracked_result, tracked_note = evaluate_tracked_flow(tracked_payload)
+        tracked_result, tracked_note = evaluate_tracked_flow(tracked_payload, scheduler_probe=scheduler_probe)
     if smoke_ok is False:
         repo_note = join_notes([repo_note, "provider smoke 搜索未通过，需先修复 CLI 链路。"])
         keyword_note = join_notes([keyword_note, "provider smoke 搜索未通过，需先修复 CLI 链路。"])
@@ -539,6 +949,7 @@ def update_final_conclusion_section(
     repo_payload: dict[str, object] | None,
     keyword_payload: dict[str, object] | None,
     tracked_payload: dict[str, object] | None,
+    scheduler_probe: dict[str, object] | None = None,
     run_ui: bool,
     startup_result: str = "待人工确认",
     error_readability_result: str = "待人工确认",
@@ -547,7 +958,7 @@ def update_final_conclusion_section(
     heading = "## 10. 最终结论"
     _, _, repo_ok = evaluate_repo_ui(repo_payload)
     _, _, keyword_ok = evaluate_keyword_ui(keyword_payload)
-    tracked_result, _ = evaluate_tracked_flow(tracked_payload)
+    tracked_result, _ = evaluate_tracked_flow(tracked_payload, scheduler_probe=scheduler_probe)
 
     blockers: list[str] = []
     followups: list[str] = []
@@ -815,36 +1226,6 @@ def update_ui_sections(content: str, payload: dict[str, object]) -> str:
         stop_tokens=("\n## ",),
     )
 
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "是否验证 `Collect tracked`",
-        f"`{yes_no(bool(tracked['collect_tracked_executed']))}`",
-    )
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "是否验证 scheduler",
-        "未自动验证",
-    )
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "collect runs 是否新增",
-        f"`{yes_no(bool(tracked['collect_runs_added']))}`",
-    )
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "是否观察到新点位或更新时间变化",
-        "未自动验证",
-    )
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "备注",
-        str(tracked.get("collect_feedback") or ""),
-    )
     return content
 
 
@@ -992,31 +1373,7 @@ def update_ui_failure_sections(
         stop_tokens=("\n## ",),
     )
 
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "是否验证 `Collect tracked`",
-        "`否`",
-    )
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "是否验证 scheduler",
-        "未自动验证",
-    )
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "collect runs 是否新增",
-        "`否`",
-    )
-    content = update_line_in_section(
-        content,
-        "## 8. 追踪与采集结果",
-        "是否观察到新点位或更新时间变化",
-        "未自动验证",
-    )
-    return update_line_in_section(content, "## 8. 追踪与采集结果", "备注", remark)
+    return content
 
 
 def main() -> int:
@@ -1040,8 +1397,17 @@ def main() -> int:
     repo_payload: dict[str, object] | None = None
     keyword_payload: dict[str, object] | None = None
     tracked_payload: dict[str, object] | None = None
+    scheduler_probe: dict[str, object] | None = None
     startup_result, startup_note = validate_empty_startup(backend_python)
-    error_readability_result, error_readability_note = validate_error_readability(backend_python)
+    if expected_mode == "real":
+        scheduler_probe = validate_scheduler_probe(backend_python, query=args.query, period=args.period)
+        error_readability_result, error_readability_note = validate_error_readability(
+            backend_python,
+            query=args.query,
+            period=args.period,
+        )
+    else:
+        error_readability_result, error_readability_note = evaluate_error_readability()
     ui_error: str | None = None
 
     if not args.skip_status:
@@ -1120,11 +1486,18 @@ def main() -> int:
             tracked_payload = ui_payload["tracked_page"]
             content = update_ui_sections(content, ui_payload)
 
+    content = update_collection_section(
+        content,
+        tracked_payload=tracked_payload,
+        scheduler_probe=scheduler_probe,
+        ui_error=ui_error,
+    )
     content = update_prd_mapping_section(
         content,
         repo_payload=repo_payload,
         keyword_payload=keyword_payload,
         tracked_payload=tracked_payload,
+        scheduler_probe=scheduler_probe,
         smoke_ok=smoke_ok,
         startup_result=startup_result,
         startup_note=startup_note,
@@ -1140,6 +1513,7 @@ def main() -> int:
         repo_payload=repo_payload,
         keyword_payload=keyword_payload,
         tracked_payload=tracked_payload,
+        scheduler_probe=scheduler_probe,
         run_ui=args.run_ui,
         startup_result=startup_result,
         error_readability_result=error_readability_result,

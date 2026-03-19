@@ -40,6 +40,7 @@ from update_real_provider_acceptance_record import (  # noqa: E402
     ROOT_DIR as RECORD_ROOT_DIR,
     command_markdown,
     summarize_exception,
+    update_collection_section,
     update_final_conclusion_section,
     update_prd_mapping_section,
     update_smoke_section,
@@ -134,6 +135,34 @@ class AcceptanceScriptTestCase(unittest.TestCase):
 
         self.assertIn(
             "| 加入追踪后，定时任务能持续写入新点位 | 部分通过 | 已自动触发 `Collect tracked`，但本次未观察到新增 collect runs；scheduler 持续写入仍需人工观察。 |",
+            updated,
+        )
+
+    def test_update_prd_mapping_section_prefers_scheduler_probe_success(self) -> None:
+        tracked_payload = {
+            "page_opened": True,
+            "collect_tracked_executed": True,
+            "collect_runs_added": False,
+        }
+
+        updated = update_prd_mapping_section(
+            self.read_template(),
+            repo_payload=None,
+            keyword_payload=None,
+            tracked_payload=tracked_payload,
+            scheduler_probe={
+                "result": "通过",
+                "note": "已通过临时 `scheduler_probe` 实例自动验证：scheduler 跨周期运行成功。",
+            },
+            smoke_ok=True,
+            startup_result="待人工确认",
+            startup_note="当前脚本不会自动清空数据库，只能证明现有环境可启动。",
+            error_readability_result="待人工确认",
+            error_readability_note="当前脚本只覆盖成功路径，失败场景仍需人工构造并确认错误提示可读。",
+        )
+
+        self.assertIn(
+            "| 加入追踪后，定时任务能持续写入新点位 | 通过 | 已通过临时 `scheduler_probe` 实例自动验证：scheduler 跨周期运行成功。 |",
             updated,
         )
 
@@ -268,6 +297,48 @@ class AcceptanceScriptTestCase(unittest.TestCase):
 
         self.assertIn("- 本次真实 provider 联调结果：`失败`", updated)
         self.assertIn("- 阻塞项：空库启动验证未通过。", updated)
+
+    def test_update_final_conclusion_section_clears_followups_after_full_probe_coverage(self) -> None:
+        repo_payload = {
+            "page_opened": True,
+            "saw_today_readout": True,
+            "saw_github_content": True,
+            "saw_trend_chart": True,
+            "track_ready": True,
+        }
+        keyword_payload = {
+            "page_opened": True,
+            "saw_newsnow_snapshot": True,
+            "saw_content_list": True,
+            "saw_accumulation_hint_or_curve": True,
+        }
+        tracked_payload = {
+            "page_opened": True,
+            "collect_tracked_executed": True,
+            "collect_runs_added": False,
+        }
+
+        updated = update_final_conclusion_section(
+            self.read_template(),
+            status_ok=True,
+            verify_ok=True,
+            smoke_ok=True,
+            repo_payload=repo_payload,
+            keyword_payload=keyword_payload,
+            tracked_payload=tracked_payload,
+            scheduler_probe={
+                "result": "通过",
+                "note": "已通过临时 `scheduler_probe` 实例自动验证：scheduler 跨周期运行成功。",
+            },
+            run_ui=True,
+            startup_result="通过",
+            error_readability_result="通过",
+        )
+
+        self.assertIn("- 本次真实 provider 联调结果：`通过`", updated)
+        self.assertIn("- 是否允许继续上线前步骤：`是`", updated)
+        self.assertNotIn("scheduler 持续采集仍需人工观察。", updated)
+        self.assertNotIn("失败场景可读性仍需人工构造验证。", updated)
 
     def test_summarize_completed_run_prefers_acceptance_summary_line(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -408,7 +479,6 @@ class AcceptanceScriptTestCase(unittest.TestCase):
         self.assertIn("- 验证地址：http://127.0.0.1:5081/?q=anthropic%2Fclaude-code&period=30d", updated)
         self.assertIn("- 是否可打开：`否`", updated)
         self.assertIn("- 备注：自动页面验收失败：BrowserType.launch failed", updated)
-        self.assertIn("- 是否验证 scheduler：未自动验证", updated)
 
     def test_update_ui_sections_writes_optional_remarks(self) -> None:
         updated = update_ui_sections(
@@ -449,6 +519,32 @@ class AcceptanceScriptTestCase(unittest.TestCase):
         self.assertIn("- 备注：自动页面验收使用 inprocess driver", updated)
         self.assertIn("- 备注：关键词页未生成浏览器截图", updated)
         self.assertIn("- 备注：Triggered 1 collection run(s).；tracked 页使用 inprocess driver", updated)
+
+    def test_update_collection_section_writes_scheduler_probe_results(self) -> None:
+        updated = update_collection_section(
+            self.read_template(),
+            tracked_payload={
+                "collect_tracked_executed": True,
+                "collect_runs_added": False,
+                "collect_feedback": "Triggered 1 collection run(s).",
+            },
+            scheduler_probe={
+                "result": "通过",
+                "section_note": "已通过临时 `scheduler_probe` 实例自动验证跨周期调度。",
+                "scheduler_verified": True,
+                "collect_runs_added": True,
+                "observed_update": True,
+            },
+        )
+
+        self.assertIn("- 是否验证 `Collect tracked`：`是`", updated)
+        self.assertIn("- 是否验证 scheduler：`是`", updated)
+        self.assertIn("- collect runs 是否新增：`是`", updated)
+        self.assertIn("- 是否观察到新点位或更新时间变化：`是`", updated)
+        self.assertIn(
+            "- 备注：Triggered 1 collection run(s).；已通过临时 `scheduler_probe` 实例自动验证跨周期调度。",
+            updated,
+        )
 
     def test_update_smoke_section_updates_force_search_example_query(self) -> None:
         updated = update_smoke_section(
