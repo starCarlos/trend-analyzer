@@ -7,7 +7,6 @@ Keep changes small, explicit, and easy to verify.
 
 - Primary runtime path is `backend/`
 - Default development mode is `PROVIDER_MODE=mock`
-- `frontend/` is a legacy prototype, not the main product path
 - Product and architecture decisions live in [`docs/`](./docs)
 
 Start here if you need project context:

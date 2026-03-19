@@ -4,7 +4,7 @@ English | [简体中文](./README.zh-CN.md)
 
 TrendScope is a local-first trend analysis app for tracking GitHub repositories and open-web keywords from one place.
 
-The current product path is `backend/`: a FastAPI application that serves the API, built-in web UI, SQLite storage, CLI, and collection workflows directly. The `frontend/` directory is a legacy Next.js prototype kept only for reference.
+The current product path is `backend/`: a FastAPI application that serves the API, built-in web UI, SQLite storage, CLI, and collection workflows directly.
 
 ## Product Preview
 
@@ -39,7 +39,6 @@ The screenshots below are direct captures from the current built-in web UI.
 
 ```text
 backend/   FastAPI app, SQLite models, provider workflows, CLI, and static web UI
-frontend/  legacy Next.js prototype kept only for reference
 docs/      product, technical, runtime, and acceptance documentation
 scripts/   local acceptance, real-provider acceptance, and smoke helpers
 ```

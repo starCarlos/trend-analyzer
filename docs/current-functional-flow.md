@@ -21,10 +21,10 @@
 
 - `backend/`
   FastAPI 后端、SQLite 数据模型、provider 切换、回填与采集服务、CLI、静态网页
-- `frontend/`
-  历史 Next.js 原型，当前默认运行链路不依赖它
 - `docs/`
   产品、技术、计划和当前实现说明文档
+- `scripts/`
+  本地验收、真实 provider 验收和 smoke 辅助脚本
 
 ## 3. 当前可用入口
 

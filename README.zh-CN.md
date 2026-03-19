@@ -4,7 +4,7 @@
 
 TrendScope 是一个本地优先的趋势分析应用，用来在一个地方同时跟踪 GitHub 仓库和开放网络关键词的热度变化。
 
-当前主产品路径是 `backend/`：它是一个直接提供 API、内置网页界面、SQLite 存储、CLI 和采集流程的 FastAPI 应用。`frontend/` 目录只是保留的历史 Next.js 原型，不是当前运行入口。
+当前主产品路径是 `backend/`：它是一个直接提供 API、内置网页界面、SQLite 存储、CLI 和采集流程的 FastAPI 应用。
 
 ## 产品预览
 
@@ -39,7 +39,6 @@ TrendScope 是一个本地优先的趋势分析应用，用来在一个地方同
 
 ```text
 backend/   FastAPI 应用、SQLite 模型、provider 流程、CLI 和静态 Web UI
-frontend/  仅保留作参考的历史 Next.js 原型
 docs/      产品、技术、运行和验收文档
 scripts/   本地验收、真实源验收和 smoke 辅助脚本
 ```

@@ -8,7 +8,7 @@ Remove the legacy `frontend/` Next.js prototype so the repository only keeps the
 
 - [x] Confirm the active runtime no longer depends on `frontend/`
 - [x] Identify the tracked files that would be removed
-- [ ] Save a checkpoint commit before deletion
-- [ ] Remove the legacy `frontend/` directory
-- [ ] Update current docs that still describe `frontend/` as present
-- [ ] Verify the worktree and the remaining repository entry points
+- [x] Save a checkpoint commit before deletion
+- [x] Remove the legacy `frontend/` directory
+- [x] Update current docs that still describe `frontend/` as present
+- [x] Verify the worktree and the remaining repository entry points
