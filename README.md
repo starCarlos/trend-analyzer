@@ -8,15 +8,15 @@ The current product path is `backend/`: a FastAPI application that serves the AP
 
 ## Product Preview
 
-The hero below is composed from real screenshots of the current built-in web UI.
+The screenshots below are direct captures from the current built-in web UI.
 
 <p align="center">
-  <img src="./docs/images/readme-hero-overview.png" alt="TrendScope README hero composed from real repository search, keyword search, and tracked dashboard views" width="100%" />
+  <img src="./docs/images/readme-search-openclaw-en.png" alt="TrendScope repository search view for openclaw/openclaw with GitHub history and matched content lines" width="100%" />
 </p>
 
-| Raw openclaw search | Raw tracked dashboard |
-| --- | --- |
-| ![TrendScope openclaw search view with a historical line and related content](./docs/images/readme-search-openclaw.png) | ![TrendScope tracked dashboard with tracked items and provider tools](./docs/images/readme-tracked-dashboard.png) |
+<p align="center">
+  <img src="./docs/images/readme-tracked-dashboard-en.png" alt="TrendScope tracked dashboard with tracked items and troubleshooting entry points" width="100%" />
+</p>
 
 ## Highlights
 

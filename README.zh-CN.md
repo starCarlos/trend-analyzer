@@ -8,15 +8,15 @@ TrendScope 是一个本地优先的趋势分析应用，用来在一个地方同
 
 ## 产品预览
 
-下面这张 hero 图由当前内置 Web UI 的真实截图重新编排而成，不是示意图。
+下面两张都是当前内置 Web UI 的直接截图。
 
 <p align="center">
-  <img src="./docs/images/readme-hero-overview.png" alt="TrendScope README hero，由真实的仓库搜索、关键词搜索和追踪面板截图组合而成" width="100%" />
+  <img src="./docs/images/readme-search-openclaw-zh.png" alt="TrendScope openclaw/openclaw 仓库搜索页，展示 GitHub 历史和多来源匹配线" width="100%" />
 </p>
 
-| 原始 openclaw 搜索图 | 原始追踪面板图 |
-| --- | --- |
-| ![TrendScope openclaw 搜索页，展示历史线和相关内容](./docs/images/readme-search-openclaw.png) | ![TrendScope 追踪面板，展示追踪项和 provider 工具](./docs/images/readme-tracked-dashboard.png) |
+<p align="center">
+  <img src="./docs/images/readme-tracked-dashboard-zh.png" alt="TrendScope 中文追踪面板，展示追踪项和排障入口" width="100%" />
+</p>
 
 ## 亮点
 

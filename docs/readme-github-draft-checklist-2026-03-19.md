@@ -17,3 +17,4 @@ Rewrite the repository README so the GitHub homepage quickly explains what Trend
 - [x] Rebalance the README opening section around the new hero image
 - [x] Re-check image references, file size, and git status after the second pass
 - [x] Swap the raw preview example to an `openclaw` search screenshot
+- [x] Replace README preview assets with user-provided direct Chinese and English screenshots
