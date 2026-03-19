@@ -1287,7 +1287,19 @@
     `;
   }
 
-  function renderProviderCard(check) {
+  function renderProviderCard(check, probe = null) {
+    const verifyMarkup = probe
+      ? `
+          <div class="provider-notes">
+            <strong>${t("provider.verify")} ${formatStatusLabel(probe.status)}</strong>
+            <ul class="provider-list">
+              <li>${probe.endpoint || t("provider.no_endpoint")}</li>
+              <li>${probe.message}</li>
+            </ul>
+          </div>
+        `
+      : "";
+
     return `
       <article class="provider-card">
         <header>
@@ -1302,29 +1314,7 @@
           <span>${t("provider.real_configured")} ${formatBooleanLabel(check.can_use_real_provider)}</span>
         </div>
         ${renderProviderDetails(check.issues, check.notes)}
-      </article>
-    `;
-  }
-
-  function renderProviderVerifyCard(result) {
-    return `
-      <article class="provider-card">
-        <header>
-          <div>
-            <h3>${translateToken("source", result.source)}</h3>
-            <p>${result.attempted_provider}</p>
-          </div>
-          <span class="provider-chip">${formatStatusLabel(result.status)}</span>
-        </header>
-        <div class="provider-meta">
-          <span>${result.endpoint || t("provider.no_endpoint")}</span>
-        </div>
-        <div class="provider-notes">
-          <strong>${t("provider.probe")}</strong>
-          <ul class="provider-list">
-            <li>${result.message}</li>
-          </ul>
-        </div>
+        ${verifyMarkup}
       </article>
     `;
   }
@@ -2069,10 +2059,12 @@
         <span> -> ${state.providerStatus.resolved_provider}</span>
         <p class="availability-message">${state.providerStatus.summary}</p>
       `;
-      const cards = listProviderChecks(state.providerStatus).map((check) => renderProviderCard(check));
-      if (state.providerVerifyFeedback) {
-        cards.push(...listProviderProbes(state.providerVerifyFeedback).map((probe) => renderProviderVerifyCard(probe)));
-      }
+      const probesBySource = new Map(
+        listProviderProbes(state.providerVerifyFeedback).map((probe) => [probe.source, probe])
+      );
+      const cards = listProviderChecks(state.providerStatus).map((check) =>
+        renderProviderCard(check, probesBySource.get(check.source) || null)
+      );
       elements.providerGrid.innerHTML = cards.join("");
     }
 
