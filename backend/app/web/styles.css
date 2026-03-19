@@ -682,21 +682,21 @@ body[data-result-state="ready"] .search-footnote {
 .secondary-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 18px;
+  gap: 14px;
   align-items: start;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .tracked-dashboard {
-  display: grid;
-  grid-template-columns: minmax(0, 1.14fr) minmax(280px, 0.86fr);
-  gap: 18px;
+  display: block;
 }
 
 .tracked-hero {
   display: grid;
-  gap: 22px;
-  padding: 24px 24px 26px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 16px;
+  align-items: end;
+  padding: 20px 22px 20px;
   background:
     radial-gradient(circle at top right, rgba(215, 154, 58, 0.18), transparent 26%),
     radial-gradient(circle at 12% 18%, rgba(13, 102, 96, 0.14), transparent 30%),
@@ -708,16 +708,16 @@ body[data-result-state="ready"] .search-footnote {
 .tracked-hero-topline {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .tracked-dashboard-kicker,
 .tracked-dashboard-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 0 12px;
+  min-height: 28px;
+  padding: 0 10px;
   border-radius: 999px;
   font-size: 11px;
   letter-spacing: 0.1em;
@@ -739,32 +739,44 @@ body[data-result-state="ready"] .search-footnote {
 .tracked-hero-title {
   margin: 0;
   color: #fff8ef;
-  font-size: clamp(40px, 5vw, 66px);
-  line-height: 0.94;
+  font-size: clamp(32px, 4vw, 44px);
+  line-height: 0.98;
   letter-spacing: -0.04em;
 }
 
+.tracked-hero-heading {
+  display: grid;
+  gap: 6px;
+}
+
+.tracked-hero-note {
+  margin: 0;
+  color: rgba(251, 242, 227, 0.62);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .tracked-hero-deck {
-  max-width: 60ch;
-  margin: 14px 0 0;
+  max-width: 58ch;
+  margin: 10px 0 0;
   color: rgba(251, 242, 227, 0.76);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.62;
 }
 
 .tracked-overview-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .tracked-overview-stat {
   position: relative;
   overflow: hidden;
-  padding: 16px 18px;
-  border-radius: 24px;
+  padding: 14px 16px;
+  border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .tracked-overview-stat::before {
@@ -779,45 +791,24 @@ body[data-result-state="ready"] .search-footnote {
   display: block;
   color: rgba(251, 242, 227, 0.56);
   font-size: 11px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .tracked-overview-stat strong {
   display: block;
-  margin-top: 10px;
+  margin-top: 8px;
   color: #fff8ef;
-  font-size: clamp(28px, 3vw, 38px);
+  font-size: clamp(20px, 2.6vw, 30px);
   line-height: 1;
   letter-spacing: -0.03em;
 }
 
 .tracked-overview-stat p {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   color: rgba(251, 242, 227, 0.68);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.tracked-side-panel {
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  padding: 22px 22px 24px;
-}
-
-.tracked-side-title {
-  display: block;
-  font-size: clamp(24px, 2.8vw, 30px);
-  line-height: 1.06;
-  letter-spacing: -0.03em;
-}
-
-.tracked-side-body {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 14px;
-  line-height: 1.68;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .operations-stack {
@@ -860,16 +851,16 @@ body[data-result-state="ready"] .search-footnote {
 .operations-summary strong {
   display: block;
   font-family: "Iowan Old Style", "Book Antiqua", "Palatino Linotype", serif;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.03em;
 }
 
 .operations-summary p {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   color: var(--ink-faint);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .operations-summary-toggle {
@@ -907,8 +898,8 @@ body[data-result-state="ready"] .search-footnote {
 .ops-focus-note {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .ops-tablist {
@@ -2511,6 +2502,7 @@ body[data-view="tracked"] .ops-tablist {
 
 @media (max-width: 1080px) {
   .hero,
+  .tracked-hero,
   .starter-grid,
   .tracked-dashboard,
   .ops-tablist,

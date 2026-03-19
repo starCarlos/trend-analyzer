@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/assets/styles.css?v=20260319-ui-refresh-12" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260319-ui-refresh-13" />
   </head>
   <body>
     <main class="page-shell">
@@ -148,19 +148,16 @@
           <article class="tracked-hero hero-card">
             <div class="tracked-hero-copy">
               <div class="tracked-hero-topline">
-                <span class="tracked-dashboard-kicker" data-i18n="tracked.dashboard_kicker">观察台</span>
-                <span class="tracked-dashboard-chip" data-i18n="tracked.dashboard_chip">长期回看</span>
+                <span class="tracked-dashboard-kicker" data-i18n="tracked.dashboard_kicker">回看页</span>
+                <span class="tracked-dashboard-chip" data-i18n="tracked.dashboard_chip">本地追踪</span>
               </div>
-              <h1 class="tracked-hero-title" data-i18n="tracked.dashboard_title">追踪台</h1>
+              <div class="tracked-hero-heading">
+                <h1 class="tracked-hero-title" data-i18n="tracked.dashboard_title">追踪</h1>
+                <p class="tracked-hero-note" data-i18n="tracked.dashboard_note">点标题回到趋势页；排障时再展开下面工具。</p>
+              </div>
               <p class="tracked-hero-deck" id="tracked-overview-text"></p>
             </div>
             <div class="tracked-overview-stats" id="tracked-overview-stats"></div>
-          </article>
-
-          <article class="panel tracked-side-panel">
-            <span class="starter-kicker" data-i18n="tracked.guide_kicker">怎么用</span>
-            <strong class="tracked-side-title" data-i18n="tracked.guide_title">把常看的对象留在这里</strong>
-            <p class="tracked-side-body" data-i18n="tracked.guide_body">列表只做回看和跳转，运维工具默认收起。排查采集或来源时，再往下展开高级区。</p>
           </article>
         </section>
 
@@ -179,7 +176,7 @@
           <div class="panel-header recent-header">
             <div>
               <h2 class="panel-title recent-title" data-i18n="tracked.title">追踪列表</h2>
-              <p class="panel-subtitle" data-i18n="tracked.subtitle">点卡片直接回到趋势页；这里只保留你会反复打开的对象。</p>
+              <p class="panel-subtitle" data-i18n="tracked.subtitle">点标题回到趋势页；这里只留值得反复回看的对象。</p>
             </div>
             <button class="button-ghost recent-clear" data-i18n="action.refresh" id="tracked-refresh-button" type="button">刷新</button>
           </div>
@@ -192,17 +189,17 @@
       <details class="operations-disclosure hidden" id="operations-disclosure">
         <summary class="operations-summary">
           <div class="operations-summary-copy">
-            <strong data-i18n="ops.title">进阶运维工具</strong>
-            <p data-i18n="ops.subtitle">普通查看趋势时可忽略；只有在排查采集、数据源或定时任务时才需要展开。</p>
+            <strong data-i18n="ops.title">排障工具</strong>
+            <p data-i18n="ops.subtitle">平时不用看；只有查采集或真实源时才展开。</p>
           </div>
           <span class="operations-summary-toggle">
-            <span class="ops-toggle-closed" data-i18n="ops.open">展开进阶工具</span>
-            <span class="ops-toggle-open" data-i18n="ops.close">收起进阶工具</span>
+            <span class="ops-toggle-closed" data-i18n="ops.open">展开排障工具</span>
+            <span class="ops-toggle-open" data-i18n="ops.close">收起排障工具</span>
           </span>
         </summary>
 
         <div class="ops-focus-strip">
-          <p class="ops-focus-note" data-i18n="ops.focus_note">先选一个问题再展开面板：看调度器、查真实源，或者临时补抓。</p>
+          <p class="ops-focus-note" data-i18n="ops.focus_note">先选一个问题：看调度器、查真实源，或者临时补抓。</p>
           <div class="ops-tablist" id="operations-tablist" role="tablist" aria-label="operations tools">
             <button aria-selected="true" class="ops-tab is-active" data-ops-tab="scheduler" role="tab" type="button">
               <span class="ops-guide-kicker" data-i18n="ops.scheduler_kicker">调度器</span>
@@ -433,6 +430,6 @@
       </section>
     </main>
 
-    <script src="/assets/app.js?v=20260319-ui-refresh-12"></script>
+    <script src="/assets/app.js?v=20260319-ui-refresh-13"></script>
   </body>
 </html>
