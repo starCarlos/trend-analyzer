@@ -91,8 +91,10 @@ class ServiceTestCase(unittest.TestCase):
         self.assertIn('id="provider-smoke-grid"', html)
         self.assertIn('id="content-disclosure"', html)
         self.assertIn('id="availability-disclosure"', html)
+        self.assertIn('value="direct_rss"', html)
         self.assertIn('data-locale-switch="zh"', html)
         self.assertIn('data-locale-switch="en"', html)
+        self.assertIn("filter_hint", app_js)
         self.assertIn("return payload?.providers || [];", app_js)
         self.assertIn("function formatChartTimestamp(value)", app_js)
         self.assertIn(".sparkline-dot", styles)
@@ -714,6 +716,46 @@ class ServiceTestCase(unittest.TestCase):
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].url, "https://example.com/openclaw-launch-1")
+
+    def test_real_provider_fetch_gdelt_archive_requires_context_for_ambiguous_query(self) -> None:
+        provider = RealDataProvider(
+            Settings(
+                provider_mode="real",
+                gdelt_enabled=True,
+                gdelt_history_days=90,
+                gdelt_max_items=10,
+                request_timeout_seconds=8.0,
+            )
+        )
+
+        payload = json.dumps(
+            {
+                "articles": [
+                    {
+                        "url": "https://example.com/claude-le-roy",
+                        "title": "CAN 2025 : Mustapha Hadji dézingue Claude Le Roy",
+                        "seendate": "20260318T231500Z",
+                        "domain": "example.com",
+                        "language": "French",
+                        "sourcecountry": "France",
+                    },
+                    {
+                        "url": "https://example.com/claude-code-security",
+                        "title": "Hackers are disguising malware as Claude Code",
+                        "seendate": "20260318T173000Z",
+                        "domain": "example.com",
+                        "language": "English",
+                        "sourcecountry": "United States",
+                    },
+                ]
+            }
+        )
+
+        with patch.object(provider, "_request_text", return_value=payload):
+            items = provider.fetch_gdelt_archive("claude")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].title, "Hackers are disguising malware as Claude Code")
 
     def test_real_provider_fetch_direct_rss_archive_parses_rss_and_atom_feeds(self) -> None:
         provider = RealDataProvider(
@@ -1734,6 +1776,102 @@ class ServiceTestCase(unittest.TestCase):
             and series.source_type == "timeline"
         )
         self.assertEqual([point.value for point in direct_rss_series.points], [1.0])
+
+    def test_keyword_search_filters_ambiguous_gdelt_name_noise_and_rebuilds_series(self) -> None:
+        bucket_start = datetime(2026, 3, 18, 0, 0, 0)
+        keyword = Keyword(
+            raw_query="claude",
+            normalized_query="claude",
+            kind="keyword",
+        )
+        self.db.add(keyword)
+        self.db.flush()
+
+        self.db.add_all(
+            [
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="gdelt",
+                    source_type="archive",
+                    external_key="gdelt-noise-claude-name",
+                    title="CAN 2025 : Mustapha Hadji dézingue Claude Le Roy",
+                    url="https://example.com/claude-le-roy",
+                    summary=None,
+                    author="example.com",
+                    published_at=datetime(2026, 3, 18, 23, 15, 0),
+                    meta_json="{}",
+                ),
+                ContentItem(
+                    keyword_id=keyword.id,
+                    source="gdelt",
+                    source_type="archive",
+                    external_key="gdelt-valid-claude-code",
+                    title="Hackers are disguising malware as Claude Code",
+                    url="https://example.com/claude-code-security",
+                    summary=None,
+                    author="example.com",
+                    published_at=datetime(2026, 3, 18, 17, 30, 0),
+                    meta_json="{}",
+                ),
+            ]
+        )
+        self.db.add(
+            TrendPoint(
+                keyword_id=keyword.id,
+                source="gdelt",
+                metric="matched_item_count",
+                source_type="timeline",
+                bucket_granularity="day",
+                bucket_start=bucket_start,
+                value=2.0,
+                raw_json="{}",
+            )
+        )
+        self.db.add(
+            TrendPoint(
+                keyword_id=keyword.id,
+                source="keyword_history",
+                metric="matched_item_count",
+                source_type="timeline",
+                bucket_granularity="day",
+                bucket_start=bucket_start,
+                value=2.0,
+                raw_json="{}",
+            )
+        )
+        self.db.commit()
+
+        with (
+            patch("app.services.search.get_settings", return_value=Settings(provider_mode="real")),
+            patch("app.services.search._prefetch_content_history_inline", return_value=False),
+            patch("app.services.search._maybe_schedule_backfill", return_value=None),
+        ):
+            payload = search_keyword(
+                db=self.db,
+                background_tasks=BackgroundTasks(),
+                query="claude",
+                period="all",
+                content_source="gdelt",
+            )
+
+        self.assertEqual(len(payload.content_items), 1)
+        self.assertEqual(payload.content_items[0].title, "Hackers are disguising malware as Claude Code")
+        gdelt_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "gdelt"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        keyword_history_series = next(
+            series
+            for series in payload.trend.series
+            if series.source == "keyword_history"
+            and series.metric == "matched_item_count"
+            and series.source_type == "timeline"
+        )
+        self.assertEqual([point.value for point in gdelt_series.points], [1.0])
+        self.assertEqual([point.value for point in keyword_history_series.points], [1.0])
 
     def test_repository_search_prefetches_google_news_inline_and_derives_timeline(self) -> None:
         repo_name = f"repo-{uuid4().hex[:8]}"

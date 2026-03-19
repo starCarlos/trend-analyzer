@@ -400,11 +400,13 @@
               <div>
                 <h2 class="panel-title" data-i18n="content.title">相关内容流</h2>
                 <p class="panel-subtitle" data-i18n="content.subtitle">与当前查询关联的最近条目。</p>
+                <p class="panel-subtitle" data-i18n="content.filter_hint">历史源会过滤摘要命中和弱相关结果；条数变少通常说明过滤生效，不是采集失败。</p>
               </div>
               <select class="period-select" id="content-source-select">
                 <option data-i18n="content_source.all" value="all" selected>全部来源</option>
                 <option data-i18n="content_source.newsnow" value="newsnow">NewsNow</option>
                 <option data-i18n="content_source.google_news" value="google_news">Google News</option>
+                <option data-i18n="content_source.direct_rss" value="direct_rss">媒体 RSS</option>
                 <option data-i18n="content_source.gdelt" value="gdelt">GDELT</option>
                 <option data-i18n="content_source.github" value="github">GitHub</option>
               </select>
@@ -438,6 +440,6 @@
       </section>
     </main>
 
-    <script src="/assets/app.js?v=20260319-ui-refresh-10"></script>
+    <script src="/assets/app.js?v=20260319-ui-refresh-11"></script>
   </body>
 </html>

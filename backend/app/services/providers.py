@@ -62,6 +62,43 @@ GDELT_TITLE_STOPWORDS = {
     "to",
     "with",
 }
+GDELT_AMBIGUOUS_QUERY_CONTEXTS = {
+    "claude": {
+        "ai",
+        "agent",
+        "agents",
+        "anthropic",
+        "api",
+        "apis",
+        "app",
+        "apps",
+        "artifact",
+        "artifacts",
+        "assistant",
+        "assistants",
+        "chatgpt",
+        "code",
+        "computer",
+        "desktop",
+        "down",
+        "feature",
+        "features",
+        "haiku",
+        "llm",
+        "model",
+        "models",
+        "openai",
+        "opus",
+        "outage",
+        "preview",
+        "prompt",
+        "prompts",
+        "sonnet",
+        "status",
+        "task",
+        "tasks",
+    }
+}
 
 
 class DataProvider(Protocol):
@@ -640,14 +677,29 @@ class RealDataProvider:
         if HAS_CJK_RE.search(normalized_query):
             raw_searchable = " ".join(part for part in (title, url) if part).casefold()
             return normalized_query in raw_searchable
-        if normalized_query in searchable:
-            return True
         tokens = cls._gdelt_tokens(normalized_query)
         if not tokens:
             return False
         title_tokens = set(title_text.split())
         url_tokens = set(url_text.split())
-        return all(token in title_tokens or token in url_tokens for token in tokens)
+        matched = normalized_query in searchable or all(token in title_tokens or token in url_tokens for token in tokens)
+        if not matched:
+            return False
+
+        if len(tokens) != 1:
+            return True
+
+        context_tokens = GDELT_AMBIGUOUS_QUERY_CONTEXTS.get(tokens[0])
+        if not context_tokens:
+            return True
+
+        context_text = " ".join(
+            part for part in (title_text, url_text, cls._gdelt_match_text(domain)) if part
+        ).strip()
+        if not context_text:
+            return False
+        available_tokens = set(context_text.split())
+        return any(token in available_tokens for token in context_tokens)
 
     def _build_gdelt_archive_url(self, query: str) -> str:
         search_query = f'"{query.strip().replace("\"", " ")}"'
