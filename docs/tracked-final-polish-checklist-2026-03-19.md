@@ -12,7 +12,7 @@ Finish the `/tracked` page cleanup so it clearly reads as a revisit page first, 
 - [x] Unify tracked page naming and helper copy
 - [x] Keep troubleshooting copy shorter and less dominant
 - [x] Run focused verification on local assets and JS syntax
-- [ ] Commit this batch
+- [x] Commit this batch
 
 ## Notes
 
